@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="PRTS.Client/PRTS.Client.csproj" />
+  <Project Path="PRTS.Server/PRTS.Server.csproj" />
+</Solution>

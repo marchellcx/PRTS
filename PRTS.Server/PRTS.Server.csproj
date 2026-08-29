@@ -1,0 +1,46 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>preview</LangVersion>
+        <RootNamespace>PRTS</RootNamespace>
+        <AssemblyName>PRTS</AssemblyName>
+        <PackageId>PRTS</PackageId>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <Reference Include="0Harmony">
+        <HintPath>..\..\NiveraAPI\NiveraAPI\bin\Release\net472\0Harmony.dll</HintPath>
+      </Reference>
+      <Reference Include="FastGenericNew">
+        <HintPath>..\..\NiveraAPI\NiveraAPI\bin\Release\net472\FastGenericNew.dll</HintPath>
+      </Reference>
+      <Reference Include="MimeTypesMap">
+        <HintPath>..\..\NiveraAPI\NiveraAPI\bin\Release\net472\MimeTypesMap.dll</HintPath>
+      </Reference>
+      <Reference Include="NiveraAPI">
+        <HintPath>$(PLUGIN_REFS)\NiveraAPI.dll</HintPath>
+      </Reference>
+      <Reference Include="System.Runtime.CompilerServices.Unsafe">
+        <HintPath>..\..\NiveraAPI\NiveraAPI\bin\Release\net472\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
+      </Reference>
+      <Reference Include="YamlDotNet">
+        <HintPath>..\..\NiveraAPI\NiveraAPI\bin\Release\net472\YamlDotNet.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Discord.Net" Version="3.19.1" />
+      <PackageReference Include="Fergun.Interactive" Version="1.9.2" />
+      <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="11.0.0-preview.6.26359.118" />
+      <PackageReference Include="System.Net.Http" Version="4.3.4" />
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,96 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net48</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AssemblyName>PRTS</AssemblyName>
+        <RootNamespace>PRTS</RootNamespace>
+        <PackageId>PRTS</PackageId>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+      <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+      <DebugSymbols>true</DebugSymbols>
+      <DebugType>embedded</DebugType>
+      <DocumentationFile>bin\Release\PRTS.Client.xml</DocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <Reference Include="0LabExtended">
+        <HintPath>..\..\..\plugin_refs\0LabExtended.dll</HintPath>
+      </Reference>
+      <Reference Include="Assembly-CSharp">
+        <HintPath>..\..\..\plugin_refs\Assembly-CSharp-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="Assembly-CSharp-firstpass">
+        <HintPath>..\..\..\plugin_refs\Assembly-CSharp-firstpass-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="CommandSystem.Core">
+        <HintPath>..\..\..\plugin_refs\CommandSystem.Core.dll</HintPath>
+      </Reference>
+      <Reference Include="LabApi">
+        <HintPath>..\..\..\plugin_refs\LabApi-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="Mirror">
+        <HintPath>..\..\..\plugin_refs\Mirror-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="NiveraAPI">
+        <HintPath>..\..\..\plugin_refs\NiveraAPI.dll</HintPath>
+      </Reference>
+      <Reference Include="NiveraAPI.ScpSl">
+        <HintPath>..\..\NiveraAPI\NiveraAPI.ScpSl\bin\Release\net48\NiveraAPI.ScpSl.dll</HintPath>
+      </Reference>
+      <Reference Include="NiveraAPI.ScpSl">
+        <HintPath>..\..\NiveraAPI\NiveraAPI.ScpSl\bin\Release\net48\NiveraAPI.ScpSl.dll</HintPath>
+      </Reference>
+      <Reference Include="NorthwoodLib">
+        <HintPath>..\..\..\plugin_refs\NorthwoodLib-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="ObscurisCore">
+        <HintPath>..\..\ObscurisCore\ObscurisCore\bin\Release\net48\ObscurisCore.dll</HintPath>
+      </Reference>
+      <Reference Include="Pooling">
+        <HintPath>..\..\..\plugin_refs\Pooling-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="Snake">
+        <HintPath>..\..\..\plugin_refs\Snake-Publicized.dll</HintPath>
+      </Reference>
+      <Reference Include="System.Net.Http">
+        <HintPath>..\..\..\plugin_refs\System.Net.Http.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.CoreModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.CoreModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.PhysicsModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.PhysicsModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UnityWebRequestAssetBundleModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.UnityWebRequestAssetBundleModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UnityWebRequestAudioModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UnityWebRequestModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.UnityWebRequestModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UnityWebRequestTextureModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.UnityWebRequestTextureModule.dll</HintPath>
+      </Reference>
+      <Reference Include="UnityEngine.UnityWebRequestWWWModule">
+        <HintPath>..\..\..\plugin_refs\UnityEngine.UnityWebRequestWWWModule.dll</HintPath>
+      </Reference>
+      <Reference Include="YamlDotNet">
+        <HintPath>..\..\..\plugin_refs\YamlDotNet.dll</HintPath>
+      </Reference>
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Newtonsoft.Json" Version="13.0.5-beta1" />
+    </ItemGroup>
+
+</Project>
