@@ -202,7 +202,19 @@ public class LevelModule : PrtsModule
             }
             else
             {
-                var array = reader.ReadArray<LevelInfo>();
+                var count = reader.ReadInt32();
+                var array = new LevelInfo[count];
+
+                for (var x = 0; x < count; x++)
+                {
+                    array[x] = new LevelInfo
+                    {
+                        Level = reader.ReadInt32(),
+                        Experience = reader.ReadInt32(),
+                        IsMaxLevel = reader.ReadBool(),
+                        MilestoneName = reader.ReadString()
+                    };
+                }
 
                 ApiLog.Debug($"Received {array.Length} levels from the server");
 
@@ -239,7 +251,16 @@ public class LevelModule : PrtsModule
             {
                 if (reader.ReadBool())
                 {
-                    callback(reader.Read<LevelData>());
+                    var data = new LevelData
+                    {
+                        curLevelNum = reader.ReadInt32(),
+                        Experience = reader.ReadInt32()
+                    };
+
+                    data.CurLevel = Levels.FirstOrDefault(l => l.Level == data.curLevelNum);
+                    data.NextLevel = Levels.FirstOrDefault(l => l.Level == data.curLevelNum + 1);
+
+                    callback(data);
                 }
                 else
                 {
@@ -262,7 +283,7 @@ public class LevelModule : PrtsModule
     /// <param name="userIds">A collection of user IDs whose level and experience information is to be retrieved.</param>
     /// <param name="callback">A callback function that is invoked with the result of the operation. The callback parameter contains a dictionary mapping user IDs to their corresponding <see cref="LevelData"/> if found, or null if no data is available.</param>
     /// <exception cref="ArgumentNullException">Thrown when the <paramref name="userIds"/> or <paramref name="callback"/> is null.</exception>
-    public void CallCmdGetPlayerLevels(IEnumerable<string> userIds, Action<Dictionary<string, LevelData>?> callback)
+    public void CallCmdGetPlayerLevels(IEnumerable<string> userIds, Action<Dictionary<string, LevelData?>?> callback)
     {
         if (userIds == null)
             throw new ArgumentNullException(nameof(userIds));
@@ -278,7 +299,7 @@ public class LevelModule : PrtsModule
             }
             else
             {
-                var dict = new Dictionary<string, LevelData>();
+                var dict = new Dictionary<string, LevelData?>();
                 var length = reader.ReadInt32();
 
                 for (var i = 0; i < length; i++)
@@ -286,7 +307,24 @@ public class LevelModule : PrtsModule
                     var userId = reader.ReadString();
 
                     if (reader.ReadBool())
-                        dict[userId] = reader.Read<LevelData>()!;
+                    {
+                        var data = new LevelData
+                        {
+                            curLevelNum = reader.ReadInt32(),
+                            Experience = reader.ReadInt32()
+                        };
+
+                        data.CurLevel = Levels.FirstOrDefault(l => l.Level == data.curLevelNum);
+                        data.NextLevel = Levels.FirstOrDefault(l => l.Level == data.curLevelNum + 1);
+
+                        dict[userId] = data;
+                    }
+                    else
+                    {
+                        ApiLog.Warn($"No level and experience found for ID &1{userId}&r");
+
+                        dict[userId] = null;
+                    }
                 }
 
                 callback(dict);

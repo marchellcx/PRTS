@@ -9,6 +9,7 @@ using PRTS.Extensions;
 using PRTS.Profiles.Objects;
 
 using NiveraAPI.Extensions;
+using PRTS.Levels.Rewards.ScpSl;
 
 namespace PRTS.ScpSl.Modules.Profiles;
 
@@ -91,6 +92,8 @@ public class ProfileModule : ScpSlModule
             Log.Warn($"Received session update for unknown session &1{sessionId}&r");
             return;
         }
+
+        ScpSlLevelRewards.UpdatePlayTimeReward(profile);
         
         session.Ended = DateTime.UtcNow;
 

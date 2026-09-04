@@ -58,7 +58,7 @@ public static class DateTimeExtensions
         get
         {
             var now = DateTime.UtcNow;
-            int daysToSubtract = (int)now.DayOfWeek + 1; // Sunday = 0, Monday = 1, ..., Saturday = 6
+            int daysToSubtract = (int)now.DayOfWeek + 1; 
             var weekStart = now.AddDays(-daysToSubtract);
             return new DateTime(weekStart.Year, weekStart.Month, weekStart.Day, 0, 0, 0);
         }
@@ -72,7 +72,7 @@ public static class DateTimeExtensions
         get
         {
             var now = DateTime.UtcNow;
-            int daysToAdd = 7 - (int)now.DayOfWeek; // Sunday = 0, Monday = 1, ..., Saturday = 6
+            int daysToAdd = 7 - (int)now.DayOfWeek;
             var weekEnd = now.AddDays(daysToAdd);
             return new DateTime(weekEnd.Year, weekEnd.Month, weekEnd.Day, 23, 59, 59);
         }

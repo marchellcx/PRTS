@@ -223,7 +223,13 @@ public static class LevelManager
         return null;
     }
 
-    private static LevelModifyResult ModifyProfileXp(StorageValue<ProfileInfo> profile, int xp)
+    /// <summary>
+    /// Modifies the experience points (XP) of a user's profile and handles associated level changes.
+    /// </summary>
+    /// <param name="profile">The user's profile to modify.</param>
+    /// <param name="xp">The amount of experience points to add or subtract.</param>
+    /// <returns>The result of the level modification.</returns>
+    public static LevelModifyResult ModifyProfileXp(StorageValue<ProfileInfo> profile, int xp)
     {
         if (xp != 0)
         {
@@ -326,7 +332,7 @@ public static class LevelManager
 
             foreach (var kvp in MilestoneNames)
             {
-                if (kvp.Key >= x + 1)
+                if (kvp.Key < x + 1)
                 {
                     milestone = kvp.Value;
                 }

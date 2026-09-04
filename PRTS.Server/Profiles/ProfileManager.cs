@@ -834,21 +834,36 @@ public static class ProfileManager
 
         LibraryLoader.HasArgument("ProfileRemoveProperty", out removeProperty);
 
+        var removeSessions = LibraryLoader.HasArgument("ProfileRemoveSessions");
+
         using var propertyReader = ObjectPool<ByteReader>.Shared.Rent();
 
         foreach (var kvp in Profiles.Values)
         {
             if (kvp.Value is not StorageValue<ProfileInfo> castValue)
                 continue;
-            
-            foreach (var xvp in castValue.Value.Sessions)
+
+            if (removeSessions)
             {
-                if (xvp.Value.Ended == DateTime.MinValue || xvp.Value.Started == DateTime.MinValue)
+                if (castValue.Value.Sessions.Count > 0)
                 {
-                    castValue.Value.Sessions.TryRemove(xvp.Key, out _);
+                    castValue.Value.Sessions.Clear();
                     castValue.IsDirty = true;
 
-                    log.Warn($"Removed invalid session &1{xvp.Key}&r from profile &3{castValue.Value.Id}&r!");
+                    log.Warn($"Removed all sessions from profile &3{castValue.Value.Id}&r!");
+                }
+            }
+            else
+            {
+                foreach (var xvp in castValue.Value.Sessions)
+                {
+                    if (xvp.Value.Ended == DateTime.MinValue || xvp.Value.Started == DateTime.MinValue)
+                    {
+                        castValue.Value.Sessions.TryRemove(xvp.Key, out _);
+                        castValue.IsDirty = true;
+
+                        log.Warn($"Removed invalid session &1{xvp.Key}&r from profile &3{castValue.Value.Id}&r!");
+                    }
                 }
             }
             

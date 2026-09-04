@@ -10,6 +10,26 @@ namespace PRTS.Extensions;
 public static class ByteReaderExtensions
 {
     /// <summary>
+    /// Reads a collection of items from the specified ByteReader and returns them as a ConcurrentBag.
+    /// </summary>
+    /// <typeparam name="T">The type of items to read.</typeparam>
+    /// <param name="reader">The ByteReader instance to read data from.</param>
+    /// <param name="target">The ConcurrentBag to populate with the read items.</param>
+    public static void ReadIntoConcurrentBag<T>(this ByteReader reader, ConcurrentBag<T> target)
+    {
+        target.Clear();
+
+        var count = reader.ReadInt32();
+
+        for (var x = 0; x < count; x++)
+        {
+            var item = reader.Read<T>();
+
+            target.Add(item);
+        }
+    }
+
+    /// <summary>
     /// Reads key-value pairs from the specified ByteReader and returns them as a ConcurrentDictionary.
     /// </summary>
     /// <param name="reader">The ByteReader instance to read data from.</param>

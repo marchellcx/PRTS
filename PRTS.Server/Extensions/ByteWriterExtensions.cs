@@ -10,6 +10,20 @@ namespace PRTS.Extensions;
 public static class ByteWriterExtensions
 {
     /// <summary>
+    /// Writes the contents of a <see cref="ConcurrentBag{T}"/> to a ByteWriter.
+    /// </summary>
+    /// <typeparam name="T">The type of items in the ConcurrentBag.</typeparam>
+    /// <param name="writer">The ByteWriter instance used to serialize the data.</param>
+    /// <param name="target">The ConcurrentBag to be serialized.</param>
+    public static void WriteConcurrentBag<T>(this ByteWriter writer, ConcurrentBag<T> target)
+    {
+        writer.WriteInt32(target.Count);
+
+        foreach (var item in target)
+            writer.Write(item);
+    }
+
+    /// <summary>
     /// Writes the contents of a <see cref="ConcurrentDictionary{TKey, TValue}"/> to a ByteWriter,
     /// including both keys and corresponding values.
     /// </summary>

@@ -1,3 +1,4 @@
+using NiveraAPI;
 using NiveraAPI.IO.Serialization;
 
 using NiveraAPI.Logs;
@@ -13,7 +14,12 @@ namespace PRTS.Profiles.Objects;
 public static class ProfileSerialization
 {
     private static volatile LogSink log = LogManager.GetSource("Profiles", "Serialization");
-    
+
+    /// <summary>
+    /// Indicates whether to read rewards from the profile data during deserialization.
+    /// </summary>
+    public static bool ReadRewards = LibraryLoader.HasArgument("ProfileReadRewards");
+
     /// <summary>
     /// Deserializes a session from the provided byte reader.
     /// </summary>
@@ -31,6 +37,9 @@ public static class ProfileSerialization
             Started = reader.ReadDate(),
             Ended = reader.ReadDate()
         };
+
+        if (ReadRewards)
+            reader.ReadIntoConcurrentBag(session.Rewards);
 
         return session;
     }
@@ -52,6 +61,9 @@ public static class ProfileSerialization
         writer.WriteString(session.Id);
         writer.WriteDate(session.Started);
         writer.WriteDate(session.Ended);
+
+        if (ReadRewards)
+            writer.WriteConcurrentBag(session.Rewards);
     }
     
     /// <summary>

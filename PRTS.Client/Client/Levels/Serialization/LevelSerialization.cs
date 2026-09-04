@@ -12,9 +12,20 @@ public static class LevelSerialization
     /// <summary>
     /// Reads a LevelInfo object from the provided ByteReader.
     /// </summary>
+    [Serializer]
+    public static Func<ByteReader, LevelInfo> ReadLevelInfoFunc = ReadLevelInfo;
+
+    /// <summary>
+    /// Reads a LevelData object from the provided ByteReader.
+    /// </summary>
+    [Serializer]
+    public static Func<ByteReader, LevelData> ReadLevelDataFunc = ReadLevelData;
+
+    /// <summary>
+    /// Reads a LevelInfo object from the provided ByteReader.
+    /// </summary>
     /// <param name="reader">The ByteReader to read data from.</param>
     /// <returns>A LevelInfo object populated with data from the reader.</returns>
-    [Serializer]
     public static LevelInfo ReadLevelInfo(ByteReader reader)
     {
         var info = new LevelInfo
@@ -33,7 +44,6 @@ public static class LevelSerialization
     /// </summary>
     /// <param name="reader">The ByteReader to read data from.</param>
     /// <returns>A LevelData object populated with data from the reader.</returns>
-    [Serializer]
     public static LevelData ReadLevelData(ByteReader reader) 
     { 
         var data = new LevelData

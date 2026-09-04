@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace PRTS.Profiles.Objects;
 
 /// <summary>
@@ -8,6 +10,11 @@ public class ProfileSession
     private volatile string id = string.Empty;
 
     /// <summary>
+    /// The rewards associated with the session.
+    /// </summary>
+    public volatile ConcurrentBag<string> Rewards = new();
+
+    /// <summary>
     /// The ID of the session.
     /// </summary>
     public string Id
@@ -15,7 +22,7 @@ public class ProfileSession
         get => id;
         set => id = value;
     }
-    
+
     /// <summary>
     /// The date and time the session ended.
     /// </summary>
