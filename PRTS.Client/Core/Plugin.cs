@@ -1,6 +1,7 @@
 using LabApi.Features;
 
 using LabExtended.Core;
+using LabExtended.Attributes;
 
 using MEC;
 
@@ -11,11 +12,14 @@ using PRTS.Client.Sitrep.Logs;
 
 using Version = System.Version;
 
+using NiveraAPI.IO.Serialization;
+
 namespace PRTS.Core;
 
 /// <summary>
 /// The main plugin class.
 /// </summary>
+[LoaderPatch]
 public class Plugin : LabApi.Loader.Features.Plugins.Plugin
 {
     /// <summary>
@@ -51,6 +55,8 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin
         ConsoleLogService.Start();
         
         SitrepService.Start();
+
+        ObjectSerializer.RegisterSerializers(typeof(Plugin).Assembly);
         
         PrtsAddonManager.LoadAddons();
         PrtsAddonManager.EnableAddons();
