@@ -38,7 +38,9 @@ public class ProfileModule : PrtsModule
     [IndexField] private static ushort cmd_CmdStartSession;
     [IndexField] private static ushort cmd_CmdUpdateSession;
 
-    private static Dictionary<ExPlayer, ProfileUpdater> sessions = new();
+    public static Dictionary<ExPlayer, ProfileUpdater> Sessions { get; } = new();
+
+    public static Dictionary<string, string[]> Roles { get; } = new();
 
     /// <summary>
     /// Initializes and prepares the client session when a client is spawned.
@@ -52,10 +54,10 @@ public class ProfileModule : PrtsModule
 
         Singleton = this;
         
-        foreach (var kvp in sessions)
+        foreach (var kvp in Sessions)
             kvp.Value.Stop();
-        
-        sessions.Clear();
+
+        Sessions.Clear();
         
         foreach (var player in ExPlayer.Players)
             CallCmdStartSession(player.UserId, player.Nickname, player.IpAddress);
@@ -70,10 +72,10 @@ public class ProfileModule : PrtsModule
     {
         base.OnDestroyed();
         
-        foreach (var kvp in sessions)
+        foreach (var kvp in Sessions)
             kvp.Value.Stop();
-        
-        sessions.Clear();
+
+        Sessions.Clear();
 
         Singleton = null!;
     }
@@ -199,24 +201,24 @@ public class ProfileModule : PrtsModule
             return;
         }
         
-        if (sessions.TryGetValue(player, out var session))
+        if (Sessions.TryGetValue(player, out var session))
             session.Stop();
 
         session = new(sessionId, userId, player, this);
         session.Start();
 
-        sessions[player] = session;
+        Sessions[player] = session;
         
         ApiLog.Debug($"Session started for user &1{userId}&r with session ID &1{sessionId}&r");
     }
 
     private static void OnPlayerLeft(ExPlayer player)
     {
-        if (sessions.TryGetValue(player, out var session))
+        if (Sessions.TryGetValue(player, out var session))
         {
             session.Stop();
 
-            sessions.Remove(player);
+            Sessions.Remove(player);
         }
     }
 
@@ -246,6 +248,8 @@ public class ProfileModule : PrtsModule
         }
         
         ApiLog.Debug($"Setting roles for user &1{userId}&r: &3{string.Join(", ", roles)}&r");
+
+        Roles[player.UserId] = roles;
 
         if (roles.Length > 0)
         {
@@ -297,7 +301,7 @@ public class ProfileModule : PrtsModule
                 group.BadgeText += $" | {found.BadgeText}";
 
             if (string.IsNullOrEmpty(group.Name))
-                group.Name = $"{DateTime.Now.Ticks}_{group.Name}";
+                group.Name = found.Name;
             else
                 group.Name += $",{found.Name}";
                 
