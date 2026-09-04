@@ -12,6 +12,8 @@ using PRTS.Profiles.Objects;
 using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Levels;
 
+using NiveraAPI.IO.Storage;
+
 namespace PRTS.Levels;
 
 /// <summary>
@@ -23,46 +25,37 @@ namespace PRTS.Levels;
 public static class LevelManager
 {
     /// <summary>
-    /// Represents the maximum level a player can achieve within the system.
-    /// This property defines the upper limit for player progression and is used
-    /// to validate and cap level-related operations, ensuring that no level
-    /// exceeds the configured threshold.
+    /// Gets or sets the highest level a player can achieve in the game. This property is configurable and can be adjusted to set the maximum level limit for players.
     /// </summary>
-    [Config("level-manager", "level-cap", "The maximum level a player can reach.")]
+    [Config("level-manager", "level-cap", "The maximum level a player can achieve.")]
     public static int LevelCap { get; set; } = 100;
 
     /// <summary>
-    /// Represents the amount of experience points required for a player to level up.
-    /// This property is used to determine the progression threshold between levels
-    /// and is factored into calculations for experience gains and level advancements.
+    /// Gets or sets the starting level for players when they first join the game. This property is configurable and can be adjusted to set the initial level for new players.
     /// </summary>
-    [Config("level-manager", "level-step", "The amount of experience points required to level up.")]
-    public static int LevelStep { get; set; } = 10;
+    [Config("level-manager", "start-level", "The starting level for players.")]
+    public static int StartLevel { get; set; } = 1;
 
     /// <summary>
-    /// Represents a collection of level-specific experience point offsets used to adjust
-    /// progression requirements dynamically. The dictionary maps specific level numbers
-    /// to their corresponding experience offsets, allowing for non-linear level progression.
-    /// This property is particularly useful for customizing progression curves beyond
-    /// the standard level step values.
+    /// Gets or sets the base amount of experience points (XP) required to level up. This property is configurable and can be adjusted to set the base XP needed for each level progression.
     /// </summary>
-    [Config("level-manager", "level-step-offsets", "A dictionary of level step offsets.")]
-    public static Dictionary<int, int> LevelStepOffsets { get; set; } = new()
+    [Config("level-manager", "experience-offsets", "Level experience offsets.")]
+    public static Dictionary<int, int> ExperienceOffsets { get; set; } = new()
     {
-        [20] = 20
+        { 1, 100 },
+        { 10, 200 }
     };
 
     /// <summary>
-    /// Represents the maximum number of logs to retain for each user's level changes.
+    /// Gets or sets the milestone names for specific levels. This property is configurable and can be adjusted to set custom names for milestone levels.
     /// </summary>
-    [Config("level-manager", "max-log-count", "The maximum number of logs to keep for each user's level changes.")]
-    public static int MaxLogCount { get; set; } = 100;
-
-    /// <summary>
-    /// Indicates whether to log only level changes or to include experience point (XP) changes as well.
-    /// </summary>
-    [Config("level-manager", "log-only-levels", "Whether to log only level changes, or also include XP changes.")]
-    public static bool LogOnlyLevels { get; set; } = true;
+    [Config("level-manager", "milestone-names", "Milestone names for specific levels.")]
+    public static Dictionary<int, string> MilestoneNames { get; set; } = new()
+    {
+        { 1, "Beginner" },
+        { 10, "Intermediate" },
+        { 20, "Advanced" }
+    };
     
     private static volatile LogSink log = LogManager.GetSource("Core", "LevelManager");
     
@@ -82,7 +75,7 @@ public static class LevelManager
     /// This array is populated and initialized based on the configured LevelCap,
     /// LevelStep, and specific level step offsets.
     /// </summary>
-    public static volatile int[] Levels = [];
+    public static volatile LevelInfo[] Levels = [];
 
     /// <summary>
     /// Resets the experience points (XP) and level of the specified user to their initial values.
@@ -100,7 +93,7 @@ public static class LevelManager
     /// A boolean value indicating whether the reset operation was successfully performed.
     /// Returns <c>false</c> if the user's profile is not found, and <c>true</c> otherwise.
     /// </returns>
-    public static bool ResetXp(string userId, string reasonId, string reasonMessage)
+    public static bool ResetXp(string userId)
     {
         if (!ProfileManager.TryGetProfileByUserId(userId, out var profile))
             return false;
@@ -108,16 +101,30 @@ public static class LevelManager
         if (!profile.Value.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
             return true;
         
-        levelProperty.Level = 0;
+        levelProperty.Level = StartLevel;
         levelProperty.Experience = 0;
         
         ScpSlManager.BroadcastEntities<LevelModule>(module =>
         { 
-            module.CallRpcNotifyChange(profile.Value.UserId, levelProperty.Level, levelProperty.Experience, reasonId, reasonMessage);
+            module.CallRpcNotifyChange(profile.Value.UserId, levelProperty.Level, levelProperty.Experience);
         });
         
         log.Info($"Reset XP and level of &1{userId}&r to their initial values!");
         return true;
+    }
+
+    /// <summary>
+    /// Modifies the experience points (XP) of a user identified by their Discord ID and handles associated level changes.
+    /// </summary>
+    /// <param name="discordId">The Discord ID of the user whose experience points are to be modified.</param>
+    /// <param name="xp">The amount of XP to add or remove. Positive values add XP, while negative values subtract XP.</param>
+    /// <returns>An instance of <c>LevelModifyResult</c> indicating the result of the operation.</returns>
+    public static LevelModifyResult ModifyXpDiscord(ulong discordId, int xp)
+    {
+        if (!ProfileManager.TryGetProfile(x => x.DiscordId == discordId, out var profile))
+            return LevelModifyResult.ProfileNotFound;
+
+        return ModifyProfileXp(profile, xp);
     }
 
     /// <summary>
@@ -139,71 +146,12 @@ public static class LevelManager
     /// An instance of <c>LevelModifyResult</c> indicating the result of the operation, such as whether the profile was found,
     /// the operation was successful, or if a level change occurred.
     /// </returns>
-    public static LevelModifyResult ModifyXp(string userId, int xp, string reasonId, string reasonMessage)
+    public static LevelModifyResult ModifyXp(string userId, int xp)
     {
-        if (xp != 0)
-        {
-            if (!ProfileManager.TryGetProfileByUserId(userId, out var profile))
-                return LevelModifyResult.ProfileNotFound;
+        if (!ProfileManager.TryGetProfileByUserId(userId, out var profile))
+            return LevelModifyResult.ProfileNotFound;
 
-            var levels = profile.GetOrAddProperty<LevelProperty>(PropertyName, prop =>
-            {
-                prop.Level = 0;
-                prop.Experience = 0;
-            });
-
-            levels.Experience += xp;
-
-            var curLevel = levels.Level;
-            var newLevel = GetLevelChange(levels.Level, levels.Experience);
-
-            if (newLevel.HasValue || !LogOnlyLevels)
-            {
-                if (MaxLogCount > 0 && levels.Logs.Count > MaxLogCount)
-                {
-                    log.Debug($"Clearing logs for &1{userId}&r as they exceeded the maximum count of &1{MaxLogCount}&r!");
-                    
-                    levels.ClearLogs();
-                }
-
-                levels.AddLog(new()
-                {
-                    Time = DateTime.UtcNow,
-
-                    Change = xp,
-
-                    LevelAfter = newLevel ?? curLevel,
-                    LevelBefore = curLevel,
-
-                    ReasonId = reasonId,
-                    ReasonMessage = reasonMessage
-                });
-            }
-
-            log.Debug($"Player &1{userId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP!");
-            
-            ScpSlManager.BroadcastEntities<LevelModule>(module =>
-            { 
-                module.CallRpcNotifyChange(profile.Value.UserId, newLevel ?? curLevel, levels.Experience, reasonId, reasonMessage);
-            });
-
-            if (newLevel.HasValue)
-            {
-                log.Info($"Player &1{userId}&r has leveled up to &1{newLevel}&r!");
-                
-                levels.Level = newLevel.Value;
-
-                return levels.Level > curLevel
-                    ? LevelModifyResult.LevelUp
-                    : LevelModifyResult.LevelDown;
-            }
-        }
-        else
-        {
-            log.Warn($"Received an XP modification of &1{xp}&r for &1{userId}&r, but it was ignored as it was zero.");
-        }
-
-        return LevelModifyResult.Ok;
+        return ModifyProfileXp(profile, xp);
     }
     
     /// <summary>
@@ -256,19 +204,18 @@ public static class LevelManager
     /// <returns>
     /// The user's new level if a level change occurs; otherwise, <c>null</c> if the current level remains unchanged.
     /// </returns>
-    public static int? GetLevelChange(int currentLevel, int currentExp)
+    public static LevelInfo? GetLevelChange(int currentLevel, int currentExp)
     {
-        log.Debug($"Calculating level change for current level &1{currentLevel}&r with &1{currentExp}&r XP...");
-
         for (var x = 0; x < Levels.Length; x++)
         {
-            var requiredXp = Levels[x];
+            var level = Levels[x];
 
-            if (requiredXp > currentExp)
+            if (level.Experience > currentExp)
             {
-                var newLevel = Math.Max(0, x - 1);
+                var newLevelIndex = Math.Max(0, x - 1);
+                var newLevel = Levels[newLevelIndex];
 
-                if (newLevel != currentLevel)
+                if (newLevel.Level != currentLevel)
                     return newLevel;
             }
         }
@@ -276,16 +223,63 @@ public static class LevelManager
         return null;
     }
 
+    private static LevelModifyResult ModifyProfileXp(StorageValue<ProfileInfo> profile, int xp)
+    {
+        if (xp != 0)
+        {
+            var levels = profile.GetOrAddProperty<LevelProperty>(PropertyName, prop =>
+            {
+                prop.Level = StartLevel;
+                prop.Experience = 0;
+            });
+
+            levels.Experience += xp;
+
+            var curLevel = levels.Level;
+            var newLevel = GetLevelChange(levels.Level, levels.Experience);
+
+            log.Info($"Player &1{profile.Value.UserId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP!");
+
+            ScpSlManager.BroadcastEntities<LevelModule>(module =>
+            {
+                module.CallRpcNotifyChange(profile.Value.UserId, newLevel?.Level ?? curLevel, levels.Experience);
+            });
+
+            if (newLevel != null)
+            {
+                log.Info($"Player &1{profile.Value.UserId}&r has leveled up to &1{newLevel}&r!");
+
+                levels.Level = newLevel.Level;
+
+                return levels.Level > curLevel
+                    ? LevelModifyResult.LevelUp
+                    : LevelModifyResult.LevelDown;
+            }
+        }
+        else
+        {
+            log.Warn($"Received an XP modification of &1{xp}&r for &1{profile.Value.UserId}&r, but it was ignored as it was zero.");
+        }
+
+        return LevelModifyResult.Ok;
+    }
+
     private static void AppendLevel(ProfileInfo profile, Func<PageBuilder> factory, List<IPageBuilder> pages)
     {
         if (profile.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
         {
             var builder = factory();
+            var level = Levels.FirstOrDefault(l => l.Level == levelProperty.Level);
+
+            if (level != null && !string.IsNullOrEmpty(level.MilestoneName))
+            {
+                builder.AddField(":trophy: Milestone", $"**{level.MilestoneName}**");
+            }
 
             if (levelProperty.Level + 1 < Levels.Length)
             {
                 builder.AddField(":bar_chart: Level", $"**{levelProperty.Level}** / {LevelCap}");
-                builder.AddField(":books: XP", $"**{levelProperty.Experience}** / {Levels[levelProperty.Level + 1]}");
+                builder.AddField(":books: XP", $"**{levelProperty.Experience}** / {Levels[levelProperty.Level + 1].Experience}");
             }
             else
             {
@@ -304,37 +298,57 @@ public static class LevelManager
         
         ProfileManager.EnsureProperty(PropertyName, () =>
         {
-            var property = new LevelProperty();
-            
-            property.Level = 0;
-            property.Experience = 0;
-            
+            var property = new LevelProperty
+            {
+                Level = StartLevel,
+                Experience = 0
+            };
+
             return property;
         });
-        
-        Levels = new int[LevelCap];
-       
-        var baseXp = LevelStep;
+
+        Levels = new LevelInfo[LevelCap];
+
+        var xp = 0;
 
         for (var x = 0; x < LevelCap; x++)
         {
-            baseXp += LevelStep;
+            var offset = 0;
+            var milestone = string.Empty;
 
-            var xp = baseXp;
-
-            foreach (var kvp in LevelStepOffsets)
+            foreach (var kvp in ExperienceOffsets)
             {
-                if (kvp.Key <= x)
+                if (kvp.Key >= x + 1)
                 {
-                    xp += kvp.Value;
+                    offset += kvp.Value;
                 }
             }
-            
-            Levels[x] = xp;
+
+            foreach (var kvp in MilestoneNames)
+            {
+                if (kvp.Key >= x + 1)
+                {
+                    milestone = kvp.Value;
+                }
+            }
+
+            xp += offset;
+
+            var info = new LevelInfo();
+
+            info.Level = x + 1;
+            info.Experience = xp;
+            info.MilestoneName = milestone;
+
+            info.IsMaxLevel = x + 1 == LevelCap;
+
+            Levels[x] = info;
+
+            log.Debug($"Created level &1{info.Level}&r with &1{info.Experience}&r XP and milestone &1{info.MilestoneName}&r.");
         }
 
         ProfileManager.ProfileEmbedBuilder += AppendLevel;
         
-        log.Info($"Initialized level system with &1{LevelCap}&r levels and &1{LevelStep}&r XP per level.");
+        log.Info($"Initialized level system with &1{LevelCap}&r levels.");
     }
 }

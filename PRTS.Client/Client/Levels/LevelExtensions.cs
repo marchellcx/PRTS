@@ -1,5 +1,8 @@
 using LabExtended.API;
 
+using PRTS.Client.Levels.Enums;
+using PRTS.Client.Levels.Objects;
+
 namespace PRTS.Client.Levels;
 
 /// <summary>
@@ -11,125 +14,64 @@ public static class LevelExtensions
     /// <summary>
     /// Retrieves the current level of the specified player.
     /// </summary>
-    /// <param name="player">
-    /// The player for whom the level information is being retrieved.
-    /// </param>
-    /// <returns>
-    /// The current level of the specified player if it exists; otherwise, 0.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the specified player is null or their reference hub is unavailable.
-    /// </exception>
+    /// <param name="player">The player for whom the level information is being retrieved.</param>
+    /// <returns>The current level of the specified player if it exists; otherwise, 0.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the specified player is null or their reference hub is unavailable.</exception>
     public static int GetLevel(this ExPlayer player)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
         
-        if (LevelModule.Levels.TryGetValue(player, out var levels))
-            return levels.Level;
+        if (LevelModule.PlayerLevels.TryGetValue(player.UserId, out var levelData))
+            return levelData.CurLevel?.Level ?? 0;
 
         return 0;
     }
 
     /// <summary>
-    /// Retrieves the current experience points of the specified player.
+    /// Retrieves the current experience points (XP) of the specified player.
     /// </summary>
-    /// <param name="player">
-    /// The player for whom the experience information is being retrieved.
-    /// </param>
-    /// <returns>
-    /// The current experience points of the specified player if it exists; otherwise, 0.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the specified player is null or their reference hub is unavailable.
-    /// </exception>
+    /// <param name="player">The player for whom the experience information is being retrieved.</param>
+    /// <returns>The current experience points (XP) of the specified player if it exists; otherwise, 0.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the specified player is null or their reference hub is unavailable.</exception>
     public static int GetExperience(this ExPlayer player)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
         
-        if (LevelModule.Levels.TryGetValue(player, out var levels))
-            return levels.Experience;
+        if (LevelModule.PlayerLevels.TryGetValue(player.UserId, out var levelData))
+            return levelData.Experience;
 
         return 0;
     }
 
     /// <summary>
-    /// Retrieves both the current level and experience of the specified player.
+    /// Retrieves the level data associated with the specified player.
     /// </summary>
-    /// <param name="player">
-    /// The player for whom the level and experience information is being retrieved.
-    /// </param>
-    /// <returns>
-    /// A tuple containing the current level and experience of the specified player.
-    /// If the level data does not exist, it returns (0, 0).
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the specified player is null or their reference hub is unavailable.
-    /// </exception>
-    public static (int Level, int Experience) GetLevelInfo(this ExPlayer player)
+    /// <param name="player">The player for whom the level data is being retrieved.</param>
+    /// <returns>The level data of the specified player if it exists; otherwise, null.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the specified player is null or their reference hub is unavailable.</exception>
+    /// <remarks>This instance can be used as a direct reference to access player's level as this instance will be updated directly until the player leaves or the round restarts.</remarks>
+    public static LevelData? GetLevelData(this ExPlayer player)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
 
-        if (LevelModule.Levels.TryGetValue(player, out var levels))
-            return levels;
+        if (LevelModule.PlayerLevels.TryGetValue(player.UserId, out var levelData))
+            return levelData;
         
-        return (0, 0);
+        return null;
     }
 
     /// <summary>
-    /// Modifies the experience points (XP) of the specified player.
+    /// Modifies the experience points (XP) of the specified player by a given amount.
     /// </summary>
-    /// <param name="player">
-    /// The player whose experience points are being modified.
-    /// </param>
-    /// <param name="xp">
-    /// The amount of experience points to add or subtract. Positive values increase XP, while negative values decrease XP.
-    /// </param>
-    /// <param name="reasonId">
-    /// A unique identifier indicating the reason for the XP modification.
-    /// </param>
-    /// <param name="reasonMessage">
-    /// A descriptive message providing additional context about the XP modification.
-    /// </param>
-    /// <returns>
-    /// <c>true</c> if the XP modification request was successfully sent to the server; otherwise, <c>false</c>.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown when the player is null or their reference hub is unavailable.
-    /// </exception>
-    public static bool ModifyXp(this ExPlayer player, int xp, string reasonId, string reasonMessage)
-    {
-        if (player?.ReferenceHub == null)
-            throw new InvalidOperationException("Player is null!");
-
-        if (LevelModule.Singleton == null)
-            return false;
-        
-        LevelModule.Singleton.CallCmdModifyXp(player.UserId, reasonId, reasonMessage, xp, null);
-        return true;
-    }
-
-    /// <summary>
-    /// Resets the experience points of the specified player.
-    /// </summary>
-    /// <param name="player">
-    /// The player whose experience points are to be reset.
-    /// </param>
-    /// <param name="reasonId">
-    /// The identifier representing the reason for resetting the experience.
-    /// </param>
-    /// <param name="reasonMessage">
-    /// A descriptive message providing additional context for the reset action.
-    /// </param>
-    /// <returns>
-    /// True if the reset action was successfully initiated; otherwise, false.
-    /// </returns>
-    /// <exception cref="InvalidOperationException">
-    /// Thrown if the specified player is null or their reference hub is unavailable.
-    /// </exception>
-    public static bool ResetXp(this ExPlayer player, string reasonId, string reasonMessage)
+    /// <param name="player">The player whose experience points are being modified.</param>
+    /// <param name="xp">The amount of experience points to add or subtract. Positive values increase XP, while negative values decrease XP.</param>
+    /// <param name="callback">An optional callback action to be invoked with the result of the XP modification.</param>
+    /// <returns>True if the XP modification request was successfully sent to the server; otherwise, false.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the player is null or their reference hub is unavailable.</exception>
+    public static bool ModifyXp(this ExPlayer player, int xp, Action<LevelModifyResult?>? callback = null)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
@@ -137,28 +79,43 @@ public static class LevelExtensions
         if (LevelModule.Singleton == null)
             return false;
 
-        LevelModule.Singleton.CallCmdResetXp(player.UserId, reasonId, reasonMessage, null);
+        xp *= LevelModule.ExperienceMultiplier;
+
+        LevelModule.Singleton.CallCmdModifyXp(player.UserId, xp, callback);
         return true;
     }
-    
+
+    /// <summary>
+    /// Resets the experience points (XP) of the specified player to zero.
+    /// </summary>
+    /// <param name="player">The player whose experience points are to be reset.</param>
+    /// <param name="callback">An optional callback action to be invoked with the result of the reset operation.</param>
+    /// <returns>True if the reset request was successfully sent to the server; otherwise, false.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the player is null or their reference hub is unavailable.</exception>
+    public static bool ResetXp(this ExPlayer player, Action<bool>? callback = null)
+    {
+        if (player?.ReferenceHub == null)
+            throw new InvalidOperationException("Player is null!");
+
+        if (LevelModule.Singleton == null)
+            return false;
+
+        LevelModule.Singleton.CallCmdResetXp(player.UserId, callback);
+        return true;
+    }
+
     /// <summary>
     /// Attempts to retrieve the current level of the specified player.
     /// </summary>
-    /// <param name="player">
-    /// The player for whom the level information is being requested.
-    /// </param>
-    /// <param name="level">
-    /// When this method returns, contains the level of the specified player if the operation succeeded,
-    /// or 0 if the operation failed. This parameter is passed uninitialized.
-    /// </param>
-    /// <returns>
-    /// true if the level was successfully retrieved for the specified player; otherwise, false.
-    /// </returns>
+    /// <param name="player">The player whose level is being requested.</param>
+    /// <param name="level">When this method returns, contains the level of the specified player if the operation succeeded, or 0 if the operation failed.</param>
+    /// <returns>True if the level was successfully retrieved for the specified player; otherwise, false.</returns>
     public static bool TryGetLevel(this ExPlayer player, out int level)
     {
-        if (LevelModule.Levels.TryGetValue(player, out var levels))
+        if (LevelModule.PlayerLevels.TryGetValue(player.UserId, out var levels)
+            && levels.CurLevel != null)
         {
-            level = levels.Level;
+            level = levels.CurLevel.Level;
             return true;
         }
 
@@ -185,10 +142,11 @@ public static class LevelExtensions
     /// </returns>
     public static bool TryGetLevelAndXp(this ExPlayer player, out int level, out int xp)
     {
-        if (LevelModule.Levels.TryGetValue(player, out var levels))
+        if (LevelModule.PlayerLevels.TryGetValue(player.UserId, out var levels)
+            && levels.CurLevel != null)
         {
             xp = levels.Experience;
-            level = levels.Level;
+            level = levels.CurLevel.Level;
 
             return true;
         }

@@ -4,6 +4,7 @@ using LabExtended.Commands;
 using LabExtended.Commands.Attributes;
 using LabExtended.Commands.Interfaces;
 
+using NiveraAPI.ScpSl;
 using NiveraAPI.Extensions;
 
 using PRTS.Client.Levels.Enums;
@@ -16,15 +17,28 @@ namespace PRTS.Client.Levels;
 [Command("level", "Management of the level module.")]
 public class LevelCommands : CommandBase, IServerSideCommand
 {
+    [CommandOverload("multiplier", "Sets the XP multiplier.", null)]
+    private void Multiplier(
+        [CommandParameter("Multiplikátor", "Nový multiplikátor XP (1 = reset).")] int multiplier)
+    {
+        if (LevelModule.Singleton == null)
+        {
+            Fail("Služba PRTS není připojena!");
+            return;
+        }
+
+        LevelModule.ExperienceMultiplier = multiplier;
+        Loader.SaveConfig();
+
+        Ok($"Multiplikátor XP nastaven na &3{multiplier}&r.");
+    }
+
     [CommandOverload("reset", "Resets the XP of a player.", null)]
     private void Reset(        
         [CommandParameter("Hráč", "ID hráče.")]
         [CommandParameter(ParserType = typeof(ExPlayer), ParserProperty = "UserId")]
         [CommandParameter(ParserType = typeof(string))]
-        string userId,
-        
-        [CommandParameter("ID", "ID důvodu.")] string reasonId,
-        [CommandParameter("Zpráva", "Informační zpráva k důvodu.")] string reasonMessage)
+        string userId)
     {
         if (LevelModule.Singleton == null)
         {
@@ -42,13 +56,13 @@ public class LevelCommands : CommandBase, IServerSideCommand
 
         Ok($"Požadavek odeslán serveru. Hráč {userId} bude resetován.");
 
-        LevelModule.Singleton.CallCmdResetXp(userId, reasonId, reasonMessage, result =>
+        LevelModule.Singleton.CallCmdResetXp(userId, result =>
         {
             if (player?.ReferenceHub != null)
             {
                 if (result)
                 {
-                    player.SendRemoteAdminMessage($"XP hráče {userId} resetováno.", tag: "PRTS");
+                    player.SendRemoteAdminMessage($"XP hráče &3{userId}&r resetováno.", tag: "PRTS");
                 }
                 else
                 {
@@ -79,19 +93,19 @@ public class LevelCommands : CommandBase, IServerSideCommand
 
         var player = Sender;
         
-        LevelModule.Singleton.CallCmdGetLevel(userId, levels =>
+        LevelModule.Singleton.CallCmdGetPlayerLevel(userId, level =>
         {
             if (player?.ReferenceHub != null)
             {
-                if (levels == null)
+                if (level == null)
                 {
-                    player.SendRemoteAdminMessage($"Nepodařilo se získat level pro hráče {userId}", tag: "PRTS",
+                    player.SendRemoteAdminMessage($"Nepodařilo se získat level pro hráče &3{userId}&r", tag: "PRTS",
                         success: false);
                 }
                 else
                 {
                     player.SendRemoteAdminMessage(
-                        $"Hráč {userId} má level {levels.Value.Level} ({levels.Value.Experience} XP)", tag: "PRTS",
+                        $"Hráč &3{userId}&r má level &3{level.CurLevel?.Level ?? -1}&r (&6{level.Experience}&r XP)", tag: "PRTS",
                         success: true);
                 }
             }
@@ -107,10 +121,7 @@ public class LevelCommands : CommandBase, IServerSideCommand
         [CommandParameter(ParserType = typeof(string))]
         string userId,
 
-        [CommandParameter("XP", "Změna XP.")] int xp,
-        
-        [CommandParameter("ID", "ID důvodu.")] string reasonId,
-        [CommandParameter("Zpráva", "Informační zpráva k důvodu.")] string reasonMessage)
+        [CommandParameter("XP", "Změna XP (nezahrnuje multiplikátor).")] int xp)
     {
         if (LevelModule.Singleton == null)
         {
@@ -126,7 +137,7 @@ public class LevelCommands : CommandBase, IServerSideCommand
 
         var player = Sender;
         
-        LevelModule.Singleton.CallCmdModifyXp(userId, reasonId, reasonMessage, xp, result =>
+        LevelModule.Singleton.CallCmdModifyXp(userId, xp, result =>
         {
             if (player?.ReferenceHub != null)
             {
