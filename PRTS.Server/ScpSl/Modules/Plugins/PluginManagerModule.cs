@@ -11,6 +11,11 @@ namespace PRTS.ScpSl.Modules.Plugins;
 [ClientType("PRTS.Client.Plugins.PluginManagerModule")]
 public class PluginManagerModule : ScpSlModule
 {
+    /// <summary>
+    /// Occurs when the server has received the list of plugins from the client.
+    /// </summary>
+    public static event Action<PluginManagerModule>? PluginsReceived;
+
     static PluginManagerModule()
     {
         ByteSerializer<PluginInfo>.Serialize = (writer, info) =>
@@ -70,6 +75,8 @@ public class PluginManagerModule : ScpSlModule
         CallRpcGetPlugins(array =>
         {
             plugins = array;
+
+            PluginsReceived?.Invoke(this);
             
             Log.Info($"Loaded {plugins.Length} plugins!");
         });

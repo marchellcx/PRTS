@@ -11,6 +11,7 @@ using NiveraAPI.IO.Network.Entities;
 using PRTS.ScpSl;
 using PRTS.ScpSl.Discord;
 using PRTS.Staff;
+using System.Net.NetworkInformation;
 
 namespace PRTS.Discord;
 
@@ -276,7 +277,84 @@ public static class DiscordExtensions
 
         await ctx.Interaction.RespondWithModalAsync(builder.Build());
     }
-    
+
+    /// <summary>
+    /// Sends a modal response to the interaction context and registers a menu handler for processing subsequent component interactions.
+    /// </summary>
+    /// <param name="ctx">The message component context containing the Discord client and interaction data.</param>
+    /// <param name="builder">The modal builder used to define the modal to be sent to the user.</param>
+    /// <param name="menuId">The ID of the menu component within the modal.</param>
+    /// <param name="menuHandler">The handler function to process menu interactions.</param>
+    /// <returns>A task representing the asynchronous operation of sending the modal response and registering the menu handler.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the interaction context, modal builder, or menu handler is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when the modal builder does not have a custom ID.</exception>
+    public static async Task RespondMenuAsync(this SocketMessageComponent ctx, ModalBuilder builder, string menuId,
+        Func<SocketModal, SocketMessageComponentData, Task?> menuHandler)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (builder == null)
+            throw new ArgumentNullException(nameof(builder));
+
+        if (menuHandler == null)
+            throw new ArgumentNullException(nameof(menuHandler));
+
+        if (string.IsNullOrEmpty(menuId))
+            throw new ArgumentNullException(nameof(menuId));
+
+        if (string.IsNullOrEmpty(builder.CustomId))
+            throw new ArgumentException("Modal builder must have a custom ID", nameof(builder));
+
+        var id = string.Concat(builder.CustomId, "_", DateTime.Now.Ticks);
+
+        builder.WithCustomId(id);
+
+        DiscordBot.menus.TryAdd(id, modal =>
+        {
+            if (!modal.Data.Components.TryGetFirst(x => x.CustomId == menuId, out var menu))
+            {
+                Log.Warn($"Menu &1{menuId}&r not found in modal &1{builder.CustomId}&r!");
+                return null;
+            }
+
+            return menuHandler(modal, menu);
+        });
+
+        await ctx.RespondWithModalAsync(builder.Build());
+    }
+
+    /// <summary>
+    /// Sends a modal response to the interaction context and registers a menu handler for processing subsequent component interactions.
+    /// </summary>
+    /// <param name="ctx">The interaction context containing the Discord client and interaction data.</param>
+    /// <param name="builder">The modal builder used to define the modal to be sent to the user.</param>
+    /// <param name="menuHandler">The handler function to process the modal interaction.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the interaction context, modal builder, or menu handler is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when the modal builder does not have a custom ID.</exception>
+    public static async Task RespondMenuAsync(this SocketMessageComponent ctx, ModalBuilder builder, Func<SocketModal, Task?> menuHandler)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (builder == null)
+            throw new ArgumentNullException(nameof(builder));
+
+        if (menuHandler == null)
+            throw new ArgumentNullException(nameof(menuHandler));
+
+        if (string.IsNullOrEmpty(builder.CustomId))
+            throw new ArgumentException("Modal builder must have a custom ID", nameof(builder));
+
+        var id = string.Concat(builder.CustomId, "_", DateTime.Now.Ticks);
+
+        builder.WithCustomId(id);
+
+        DiscordBot.menus.TryAdd(id, menuHandler);
+        await ctx.RespondWithModalAsync(builder.Build());
+    }
+
     /// <summary>
     /// Waits for a modal interaction to be completed and retrieves the resulting modal instance.
     /// </summary>
@@ -321,6 +399,220 @@ public static class DiscordExtensions
         }
 
         return modal;
+    }
+
+    /// <summary>
+    /// Waits for a button interaction to be completed and retrieves the resulting button component instance.
+    /// </summary>
+    /// <param name="ctx">The interaction context containing the Discord client and interaction data.</param>
+    /// <param name="embedBuilder">The embed builder used to define the embed to be sent to the user.</param>
+    /// <param name="buttons">The collection of button builders used to define the buttons to be sent to the user.</param>
+    /// <param name="ephemeral">Whether the message should be ephemeral (only visible to the user).</param>
+    /// <param name="maxWait">The maximum amount of time to wait for a button interaction.</param>
+    /// <returns>The button component instance containing the interaction response data.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when any of the required parameters are null.</exception>
+    /// <exception cref="ArgumentException">Thrown when any of the button builders do not have a custom ID.</exception>
+    /// <exception cref="TimeoutException">Thrown when the button response times out.</exception>
+    public static async Task<SocketMessageComponent> AwaitButtonsAsync(this SocketMessageComponent ctx, EmbedBuilder embedBuilder, IEnumerable<ButtonBuilder> buttons, bool ephemeral, TimeSpan? maxWait = null)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (embedBuilder == null)
+            throw new ArgumentNullException(nameof(embedBuilder));
+
+        if (buttons == null)
+            throw new ArgumentNullException(nameof(buttons));
+
+        var comp = default(SocketMessageComponent);
+        var builder = new ComponentBuilderV2();
+
+        foreach (var button in buttons)
+        {
+            if (string.IsNullOrEmpty(button.CustomId))
+                throw new ArgumentException("Button builder must have a custom ID", nameof(button));
+
+            button.WithCustomId(string.Concat(button.CustomId, DateTime.UtcNow.Ticks));
+
+            DiscordBot.buttons.TryAdd(button.CustomId, x =>
+            {
+                comp = x;
+                return Task.CompletedTask;
+            });
+        }
+
+        await ctx.FollowupAsync(embed: embedBuilder.Build(), components: builder.Build(), ephemeral: ephemeral);
+
+        var start = DateTime.Now;
+
+        while (comp == null)
+        {
+            await Task.Delay(100);
+
+            if (maxWait.HasValue && DateTime.Now - start > maxWait.Value)
+                throw new TimeoutException("Button response timed out");
+        }
+
+        return comp;
+    }
+
+    /// <summary>
+    /// Waits for a button interaction to be completed and retrieves the resulting button component instance.
+    /// </summary>
+    /// <param name="ctx">The interaction context containing the Discord client and interaction data.</param>
+    /// <param name="msg">The message to be sent with the buttons.</param>
+    /// <param name="buttons">The collection of button builders to be included in the message.</param>
+    /// <param name="ephemeral">Whether the message should be ephemeral (only visible to the user).</param>
+    /// <param name="maxWait">The maximum amount of time to wait for a button interaction.</param>
+    /// <returns>The button component instance resulting from the interaction.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the context or buttons collection is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when a button builder does not have a custom ID.</exception>
+    /// <exception cref="TimeoutException">Thrown when the button response times out.</exception>
+    public static async Task<SocketMessageComponent> AwaitButtonsAsync(this SocketMessageComponent ctx, string msg, IEnumerable<ButtonBuilder> buttons, bool ephemeral, TimeSpan? maxWait = null)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (buttons == null)
+            throw new ArgumentNullException(nameof(buttons));
+
+        var comp = default(SocketMessageComponent);
+        var builder = new ComponentBuilderV2();
+
+        foreach (var button in buttons)
+        {
+            if (string.IsNullOrEmpty(button.CustomId))
+                throw new ArgumentException("Button builder must have a custom ID", nameof(button));
+
+            button.WithCustomId(string.Concat(button.CustomId, DateTime.UtcNow.Ticks));
+
+            DiscordBot.buttons.TryAdd(button.CustomId, x =>
+            {
+                comp = x;
+                return Task.CompletedTask;
+            });
+        }
+
+        await ctx.FollowupAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
+
+        var start = DateTime.Now;
+
+        while (comp == null)
+        {
+            await Task.Delay(100);
+
+            if (maxWait.HasValue && DateTime.Now - start > maxWait.Value)
+                throw new TimeoutException("Button response timed out");
+        }
+
+        return comp;
+    }
+
+    /// <summary>
+    /// Waits for a button interaction to be completed and retrieves the resulting button component instance.
+    /// </summary>
+    /// <param name="ctx">The interaction context containing the Discord client and interaction data.</param>
+    /// <param name="embedBuilder">The embed builder used to define the embed to be sent to the user.</param>
+    /// <param name="buttons">The collection of button builders used to define the buttons to be sent to the user.</param>
+    /// <param name="ephemeral">Whether the message should be ephemeral (only visible to the user).</param>
+    /// <param name="maxWait">The maximum amount of time to wait for a button interaction.</param>
+    /// <returns>The button component instance containing the interaction response data.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when any of the required parameters are null.</exception>
+    /// <exception cref="ArgumentException">Thrown when any of the button builders do not have a custom ID.</exception>
+    /// <exception cref="TimeoutException">Thrown when the button response times out.</exception>
+    public static async Task<SocketMessageComponent> AwaitButtonsAsync(this SocketModal ctx, EmbedBuilder embedBuilder, IEnumerable<ButtonBuilder> buttons, bool ephemeral, TimeSpan? maxWait = null)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (embedBuilder == null)
+            throw new ArgumentNullException(nameof(embedBuilder));
+
+        if (buttons == null)
+            throw new ArgumentNullException(nameof(buttons));
+
+        var comp = default(SocketMessageComponent);
+        var builder = new ComponentBuilderV2();
+
+        foreach (var button in buttons)
+        {
+            if (string.IsNullOrEmpty(button.CustomId))
+                throw new ArgumentException("Button builder must have a custom ID", nameof(button));
+
+            button.WithCustomId(string.Concat(button.CustomId, DateTime.UtcNow.Ticks));
+
+            DiscordBot.buttons.TryAdd(button.CustomId, x =>
+            {
+                comp = x;
+                return Task.CompletedTask;
+            });
+        }
+
+        await ctx.FollowupAsync(embed: embedBuilder.Build(), components: builder.Build(), ephemeral: ephemeral);
+
+        var start = DateTime.Now;
+
+        while (comp == null)
+        {
+            await Task.Delay(100);
+
+            if (maxWait.HasValue && DateTime.Now - start > maxWait.Value)
+                throw new TimeoutException("Button response timed out");
+        }
+
+        return comp;
+    }
+
+    /// <summary>
+    /// Waits for a button interaction to be completed and retrieves the resulting button component instance.
+    /// </summary>
+    /// <param name="ctx">The interaction context containing the Discord client and interaction data.</param>
+    /// <param name="msg">The message to be sent with the buttons.</param>
+    /// <param name="buttons">The collection of button builders to be included in the message.</param>
+    /// <param name="ephemeral">Whether the message should be ephemeral (only visible to the user).</param>
+    /// <param name="maxWait">The maximum amount of time to wait for a button interaction.</param>
+    /// <returns>The button component instance resulting from the interaction.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when the context or buttons collection is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when a button builder does not have a custom ID.</exception>
+    /// <exception cref="TimeoutException">Thrown when the button response times out.</exception>
+    public static async Task<SocketMessageComponent> AwaitButtonsAsync(this SocketModal ctx, string msg, IEnumerable<ButtonBuilder> buttons, bool ephemeral, TimeSpan? maxWait = null)
+    {
+        if (ctx == null)
+            throw new ArgumentNullException(nameof(ctx));
+
+        if (buttons == null)
+            throw new ArgumentNullException(nameof(buttons));
+
+        var comp = default(SocketMessageComponent);
+        var builder = new ComponentBuilderV2();
+
+        foreach (var button in buttons)
+        {
+            if (string.IsNullOrEmpty(button.CustomId))
+                throw new ArgumentException("Button builder must have a custom ID", nameof(button));
+
+            button.WithCustomId(string.Concat(button.CustomId, DateTime.UtcNow.Ticks));
+
+            DiscordBot.buttons.TryAdd(button.CustomId, x =>
+            {
+                comp = x;
+                return Task.CompletedTask;
+            });
+        }
+
+        await ctx.FollowupAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
+
+        var start = DateTime.Now;
+
+        while (comp == null)
+        {
+            await Task.Delay(100);
+
+            if (maxWait.HasValue && DateTime.Now - start > maxWait.Value)
+                throw new TimeoutException("Button response timed out");
+        }
+
+        return comp;
     }
 
     /// <summary>
@@ -405,6 +697,34 @@ public static class DiscordExtensions
     /// <param name="perm">The permission string to check for.</param>
     /// <returns>True if the user has the specified permission; otherwise, false.</returns>
     public static bool HasPermission(this SocketInteractionContext ctx, string perm)
+    {
+        if (ctx?.User == null)
+            return false;
+
+        return StaffRole.HasPermissionAll(0, ctx.User.Id, perm);
+    }
+
+    /// <summary>
+    /// Determines whether the user associated with the specified message component context has the given permission.
+    /// </summary>
+    /// <param name="ctx">The message component context containing information about the user and interaction.</param>
+    /// <param name="perm">The permission string to check for.</param>
+    /// <returns>True if the user has the specified permission; otherwise, false.</returns>
+    public static bool HasPermission(this SocketMessageComponent ctx, string perm)
+    {
+        if (ctx?.User == null)
+            return false;
+
+        return StaffRole.HasPermissionAll(0, ctx.User.Id, perm);
+    }
+
+    /// <summary>
+    /// Determines whether the user associated with the specified modal interaction context has the given permission.
+    /// </summary>
+    /// <param name="ctx">The modal interaction context containing information about the user and interaction.</param>
+    /// <param name="perm">The permission string to check for.</param>
+    /// <returns>True if the user has the specified permission; otherwise, false.</returns>
+    public static bool HasPermission(this SocketModal ctx, string perm)
     {
         if (ctx?.User == null)
             return false;

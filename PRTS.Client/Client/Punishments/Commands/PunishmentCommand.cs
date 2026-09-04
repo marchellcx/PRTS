@@ -49,7 +49,7 @@ public class PunishmentCommand : CommandBase, IServerSideCommand
                                                       $"&3Typ&r: {punishment.Type}\n" +
                                                       $"&3Status&r: {punishment.Status}\n" +
                                                       $"&3Důvod&r: {punishment.Reason}\n" +
-                                                      $"&3Expirace&r: {(punishment.IsPermanent ? "&1PERMANENTNÍ&r" : punishment.ExpiresAt.ToVeCzechString())}\n" +
+                                                      $"&3Expirace&r: {(punishment.IsPermanent ? "&1PERMANENTNÍ&r" : punishment.ExpiresAt.ToLocalTime().ToVeCzechString())}\n" +
                                                       $"&3ID profilu hráče&r: {punishment.TargetId}\n" +
                                                       $"&3ID profilu administrátora&r: {punishment.StaffId}", tag: "PRTS");
                     }

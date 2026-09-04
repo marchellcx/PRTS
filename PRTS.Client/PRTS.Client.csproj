@@ -18,6 +18,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <Reference Include="0Harmony">
+        <HintPath>..\..\..\plugin_refs\0Harmony.dll</HintPath>
+      </Reference>
       <Reference Include="0LabExtended">
         <HintPath>..\..\..\plugin_refs\0LabExtended.dll</HintPath>
       </Reference>

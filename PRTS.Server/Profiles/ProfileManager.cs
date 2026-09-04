@@ -830,6 +830,10 @@ public static class ProfileManager
         
         log.Debug("Loading profile properties ..");
 
+        string? removeProperty = null;
+
+        LibraryLoader.HasArgument("ProfileRemoveProperty", out removeProperty);
+
         using var propertyReader = ObjectPool<ByteReader>.Shared.Rent();
 
         foreach (var kvp in Profiles.Values)
@@ -842,6 +846,7 @@ public static class ProfileManager
                 if (xvp.Value.Ended == DateTime.MinValue || xvp.Value.Started == DateTime.MinValue)
                 {
                     castValue.Value.Sessions.TryRemove(xvp.Key, out _);
+                    castValue.IsDirty = true;
 
                     log.Warn($"Removed invalid session &1{xvp.Key}&r from profile &3{castValue.Value.Id}&r!");
                 }
@@ -851,6 +856,15 @@ public static class ProfileManager
             {
                 try
                 {
+                    if (removeProperty != null && removeProperty == propertyKvp.Key)
+                    {
+                        castValue.Value.PropertyValues.TryRemove(propertyKvp.Key, out _);
+                        castValue.IsDirty = true;
+
+                        log.Warn($"Removed property &1{propertyKvp.Key}&r from profile &3{castValue.Value.Id}&r!");
+                        continue;
+                    }
+
                     propertyReader.Reset(propertyKvp.Value, 0, propertyKvp.Value.Length);
 
                     var typeName = propertyReader.ReadString();

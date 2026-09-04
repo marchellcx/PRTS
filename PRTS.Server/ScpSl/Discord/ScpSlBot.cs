@@ -6,7 +6,6 @@ using Discord.WebSocket;
 using NiveraAPI.Console;
 
 using PRTS.Discord;
-using PRTS.ScpSl.Modules.Plugins;
 
 namespace PRTS.ScpSl.Discord;
 
@@ -17,7 +16,12 @@ public class ScpSlBot : DiscordBot
 {
     private volatile ScpSlServer? server;
     private volatile ConcurrentQueue<KeyValuePair<ulong, string>> messages = new();
-    
+
+    private volatile bool countUpdateRequested;
+
+    private volatile int maxPlayerCount;
+    private volatile int currentPlayerCount;
+
     /// <summary>
     /// Creates a new instance of the <see cref="ScpSlBot"/> class.
     /// </summary>
@@ -43,12 +47,10 @@ public class ScpSlBot : DiscordBot
     /// <param name="maxPlayers">The maximum number of players allowed on the server.</param>
     public void UpdatePlayerCount(int players, int maxPlayers)
     {
-        if (players < 1 && Status != UserStatus.Idle)
-            Status = UserStatus.Idle;
-        else if (players > 0 && Status != UserStatus.Online)
-            Status = UserStatus.Online;
+        countUpdateRequested = true;
 
-        ActivityText = string.Concat(players, " / ", maxPlayers);
+        currentPlayerCount = players;
+        maxPlayerCount = maxPlayers;
     }
 
     /// <summary>
@@ -72,11 +74,7 @@ public class ScpSlBot : DiscordBot
     /// </summary>
     public virtual void OnServerDisconnected()
     {
-        Server = null!;
-        
-        Status = UserStatus.DoNotDisturb;
-        
-        ActivityText = "Disconnected!";
+
     }
 
     /// <summary>
@@ -90,10 +88,6 @@ public class ScpSlBot : DiscordBot
         var client = Client;
 
         RegisterCommands<ScpSlCommands>();
-        
-        Status = UserStatus.DoNotDisturb;
-        
-        ActivityText = "Disconnected!";
         
         Task.Run(() => UpdateStatusAsync(client));
         Task.Run(() => UpdateMessagesAsync(client));
@@ -109,23 +103,32 @@ public class ScpSlBot : DiscordBot
 
                 if (Server != null)
                 {
-                    var text = string.Concat(Server.Players, " / ", Server.MaxPlayers);
-                    var status = UserStatus.Idle;
+                    if (countUpdateRequested)
+                    {
+                        var text = string.Concat(currentPlayerCount, " / ", maxPlayerCount);
+                        var status = UserStatus.Idle;
 
-                    if (Server.Players > 0)
-                        status = UserStatus.Online;
+                        if (currentPlayerCount > 0)
+                            status = UserStatus.Online;
 
-                    if (client.Status != status)
-                        await client.SetStatusAsync(status);
-                    
-                    await client.SetCustomStatusAsync(text);
+                        if (client.Status != status)
+                            await client.SetStatusAsync(status);
+
+                        if (client.Activity == null || (client.Activity.Name != text && client.Activity.Details != text))
+                            await client.SetCustomStatusAsync(text);
+
+                        Log.Debug($"Updated status to &2{status}&r with activity &3{text}&r");
+
+                        countUpdateRequested = false;
+                    }
                 }
                 else
                 {
                     if (client.Status != UserStatus.DoNotDisturb)
-                        await client.SetStatusAsync(UserStatus.DoNotDisturb);
-                    
-                    await client.SetCustomStatusAsync("Disconnected!");
+                        await client.SetStatusAsync(UserStatus.DoNotDisturb);      
+
+                    if (client.Activity == null || (client.Activity.Name != "Disconnected!" && client.Activity.Details != "Disconnected!"))
+                        await client.SetCustomStatusAsync("Disconnected!");
                 }
             }
             catch (Exception ex)
@@ -143,6 +146,8 @@ public class ScpSlBot : DiscordBot
         
         while (client.ConnectionState == ConnectionState.Connected)
         {
+            await Task.Delay(1000);
+
             while (messages.TryDequeue(out var message))
             {
                 await Task.Delay(100);
@@ -180,6 +185,8 @@ public class ScpSlBot : DiscordBot
                 catch (Exception ex)
                 {
                     ConsoleOutput.Write($"Error while sending Discord message to channel {message.Key}:\n{ex}", ConsoleColor.Red);
+
+                    await Task.Delay(5000);
                 }
             }
         }

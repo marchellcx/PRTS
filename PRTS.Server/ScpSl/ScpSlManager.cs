@@ -10,7 +10,6 @@ using NiveraAPI.IO.Network.Database.Server;
 using NiveraAPI.Logs;
 using NiveraAPI.Services;
 using NiveraAPI.Utilities;
-using NiveraAPI.Extensions;
 
 using PRTS.Main;
 using PRTS.ScpSl.Discord;
@@ -29,7 +28,7 @@ public static class ScpSlManager
     /// </summary>
     [Config("scp-sl", "guild-id", "The ID of the Discord guild to connect to.")]
     public static ulong GuildId { get; set; } = 0;
-    
+
     /// <summary>
     /// A dictionary of Discord bot tokens.
     /// </summary>
@@ -38,7 +37,14 @@ public static class ScpSlManager
     {
         { "example", "example" }
     };
-    
+
+    /// <summary>
+    /// A static property that contains a collection of all registered modules in the system.
+    /// Each module must inherit from <see cref="ScpSlModule"/> and is dynamically discovered
+    /// and registered using the <see cref="ScpSlManager.RegisterModules(Assembly)"/> method.
+    /// </summary>
+    public static volatile ConcurrentBag<Type> Modules = new();
+
     /// <summary>
     /// A dictionary of Discord bots that are currently connected to the server.
     /// </summary>
@@ -48,13 +54,6 @@ public static class ScpSlManager
     /// A thread-safe collection that maps network connections to their corresponding SCP:SL server instances.
     /// </summary>
     public static volatile ConcurrentDictionary<NetConnection, ScpSlServer> Servers = new();
-
-    /// <summary>
-    /// A static property that contains a collection of all registered modules in the system.
-    /// Each module must inherit from <see cref="ScpSlModule"/> and is dynamically discovered
-    /// and registered using the <see cref="ScpSlManager.RegisterModules(Assembly)"/> method.
-    /// </summary>
-    public static volatile ConcurrentBag<Type> Modules = new();
 
     /// <summary>
     /// Attempts to retrieve an SCP:SL server instance based on its alias.
@@ -274,5 +273,41 @@ public static class ScpSlManager
     private static void OnDisconnected(NetConnection connection)
     {
         log.Info($"&1{connection.EndPoint}&r disconnected!");
+
+        var endpoint = connection.EndPoint!.ToString();
+
+        foreach (var kvp in Servers)
+        {
+            if (kvp.Value.endpoint == endpoint)
+            {
+                Servers.TryRemove(kvp);
+
+                if (kvp.Value.DiscordBot != null)
+                {
+                    kvp.Value.DiscordBot.Server = null;
+                    kvp.Value.DiscordBot.OnServerDisconnected();
+                }
+
+                kvp.Value.DiscordBot = null;
+
+                try
+                {
+                    kvp.Value.Manager?.Connection?.StopAllServices(true);
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                try
+                {
+                    kvp.Value.Manager?.Stop();
+                }
+                catch
+                {
+                    // ignored
+                }
+            }
+        }
     }
 }

@@ -5,18 +5,16 @@ using Discord.Interactions;
 using Fergun.Interactive;
 using Fergun.Interactive.Pagination;
 
-using Newtonsoft.Json;
-
 using NiveraAPI.Steam;
 using NiveraAPI.Console;
 using NiveraAPI.Utilities;
 
+using PRTS.Staff;
 using PRTS.Discord;
 using PRTS.Profiles;
 using PRTS.Database;
-using PRTS.Extensions;
 using PRTS.RoleSync;
-using PRTS.Staff;
+using PRTS.Extensions;
 
 namespace PRTS.Main;
 
@@ -46,45 +44,77 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         var builders = new List<IPageBuilder>();
         var builder = new StaticPaginatorBuilder();
         var page = new PageBuilder();
-        var info = await SteamClient.GetProfileInfoAsync(profile.Value.UserId.Split('@')[0]);
+
+        var segments = profile.Value.UserId.Split('@');
+
+        Func<PageBuilder> factory;
+
+        if (segments[1] == "steam")
+        {
+            var info = await SteamClient.GetProfileInfoAsync(segments[0]);
+
+            if (!string.IsNullOrEmpty(info?.AvatarFullUrl))
+                page.WithAuthor(profile.Value.GetNickname(), info.AvatarFullUrl,
+                    $"https://steamcommunity.com/profiles/{segments[0]}");
+            else
+                page.WithAuthor(profile.Value.GetNickname(), null,
+                    $"https://steamcommunity.com/profiles/{segments[0]}");
+
+            factory = new Func<PageBuilder>(() =>
+            {
+                var builder = new PageBuilder();
+
+                builder.WithTitle(":globe_with_meridians: | Profil");
+                builder.WithColor(Color.Blue);
+                builder.WithCurrentTimestamp();
+
+                if (!string.IsNullOrEmpty(info?.AvatarFullUrl))
+                    builder.WithAuthor(profile.Value.GetNickname(), info.AvatarFullUrl,
+                        $"https://steamcommunity.com/profiles/{segments[0]}");
+                else
+                    builder.WithAuthor(profile.Value.GetNickname(), null,
+                        $"https://steamcommunity.com/profiles/{segments[0]}");
+
+                return builder;
+            });
+        }
+        else
+        {
+            page.WithAuthor(user.GlobalName ?? user.Username, user.GetDisplayAvatarUrl() ?? (user.GetDisplayAvatarUrl() ?? user.GetDefaultAvatarUrl()));
+
+            factory = new Func<PageBuilder>(() =>
+            {
+                var builder = new PageBuilder();
+
+                builder.WithTitle(":globe_with_meridians: | Profil");
+                builder.WithColor(Color.Blue);
+                builder.WithCurrentTimestamp();
+                builder.WithAuthor(user.GlobalName ?? user.Username, user.GetDisplayAvatarUrl() ?? (user.GetDisplayAvatarUrl() ?? user.GetDefaultAvatarUrl()));
+
+                return builder;
+            });
+        }
 
         var totalPlaytime = profile.Value.GetTotalPlaytime();
-        var monthPlaytime = profile.Value.GetTotalPlaytime(new(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc), DateTime.UtcNow);
+
+        var dayPlaytime = profile.Value.GetTotalPlaytime(DateTimeExtensions.DayStart, DateTimeExtensions.DayEnd);
+        var weekPlaytime = profile.Value.GetTotalPlaytime(DateTimeExtensions.WeekStart, DateTimeExtensions.WeekEnd);
+        var monthPlaytime = profile.Value.GetTotalPlaytime(DateTimeExtensions.MonthStart, DateTimeExtensions.MonthEnd);
 
         page.WithTitle(":globe_with_meridians: | Profil");
         page.WithColor(Color.Blue);
         page.WithCurrentTimestamp();
         page.WithFooter($"ID: {profile.Value.Id}");
 
-        if (!string.IsNullOrEmpty(info?.AvatarFullUrl))
-            page.WithAuthor(profile.Value.GetNickname(), info.AvatarFullUrl,
-                $"https://steamcommunity.com/profiles/{profile.Value.UserId.Split('@')[0]}");
-        else
-            page.WithAuthor(profile.Value.GetNickname(), null,
-                $"https://steamcommunity.com/profiles/{profile.Value.UserId.Split('@')[0]}");
+        page.AddField(":man_detective: První připojení", profile.Value.CreatedAt.ToLocalTime().ToVeCzechString());
+        page.AddField(":knot: Poslední připojení", profile.Value.LastLogin.ToLocalTime().ToVeCzechString());
 
         page.AddField(":clock1: Čas na serveru (celkem)", totalPlaytime.ToFullCzechString());
+        page.AddField(":calendar: Čas na serveru (dnes)", dayPlaytime.ToFullCzechString());
+        page.AddField(":calendar: Čas na serveru (tento týden)", weekPlaytime.ToFullCzechString());
         page.AddField(":calendar: Čas na serveru (tento měsíc)", monthPlaytime.ToFullCzechString());
 
         builders.Add(page);
-
-        var factory = new Func<PageBuilder>(() =>
-        {
-            var builder = new PageBuilder();
-
-            builder.WithTitle(":globe_with_meridians: | Profil");
-            builder.WithColor(Color.Blue);
-            builder.WithCurrentTimestamp();
-
-            if (!string.IsNullOrEmpty(info?.AvatarFullUrl))
-                builder.WithAuthor(profile.Value.GetNickname(), info.AvatarFullUrl,
-                    $"https://steamcommunity.com/profiles/{profile.Value.UserId.Split('@')[0]}");
-            else
-                builder.WithAuthor(profile.Value.GetNickname(), null,
-                    $"https://steamcommunity.com/profiles/{profile.Value.UserId.Split('@')[0]}");
-
-            return builder;
-        });
 
         ProfileManager.InvokeEmbedBuilder(profile.Value, factory, builders);
 
@@ -100,7 +130,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="role">The role associated with the staff role.</param>
     /// <param name="permissions">A comma-separated list of permissions to be added.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    [SlashCommand("addperms", "Přidá permise staff roli.")]
+    [SlashCommand("addstaffperms", "Přidá permise staff roli.")]
     public async Task AddPermissionsAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role,
         [Summary("Permise", "Seznam permisí které přidat (oddělené čárkou).")] string permissions)
@@ -129,7 +159,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="role">The role associated with the staff role.</param>
     /// <param name="permissions">A comma-separated list of permissions to be added.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
-    [SlashCommand("delperms", "Odebere permise staff roli.")]
+    [SlashCommand("delstaffperms", "Odebere permise staff roli.")]
     public async Task DeletePermissionsAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role,
         [Summary("Permise", "Seznam permisí které odebrat (oddělené čárkou).")] string permissions)
@@ -157,7 +187,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// </summary>
     /// <param name="role">The Discord role that is associated with the staff role to be removed.</param>
     /// <returns>A task representing the asynchronous operation of removing the staff role.</returns>
-    [SlashCommand("remove", "Odstraní staff roli.")]
+    [SlashCommand("removestaffrole", "Odstraní staff roli.")]
     public async Task RemoveAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role)
     {
@@ -190,7 +220,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="isAdmin">Indicates whether members of the staff role have administrative privileges.</param>
     /// <param name="perms">A comma-separated string representing the permissions associated with the staff role.</param>
     /// <returns>A task representing the asynchronous operation of creating or updating the staff role.</returns>
-    [SlashCommand("create", "Vytvoří staff roli.")]
+    [SlashCommand("createstaffrole", "Vytvoří staff roli.")]
     public async Task CreateAsync(
         [Summary("Role", "Role propojená se staff rolí.")]
         SocketRole role,
@@ -234,7 +264,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="remoteRole">The name of the remote role to be added and synchronized.</param>
     /// <param name="roleId">A list of server roles that will be associated with the remote role.</param>
     /// <returns>A task that represents the asynchronous operation of adding the synchronized role.</returns>
-    [SlashCommand("syncrole", "Přidá roli na serveru.")]
+    [SlashCommand("addsyncrole", "Přidá roli na serveru.")]
     public async Task SyncRoleAsync(
         [Summary("Group", "Název skupiny která bude přidělena na serveru.")] string remoteRole, 
         [Summary("Role", "Role která bude v synchronizaci.")] SocketRole roleId)
@@ -259,7 +289,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="remoteRole">The name of the remote role to be added and synchronized.</param>
     /// <param name="role">A list of server roles that will be associated with the remote role.</param>
     /// <returns>A task that represents the asynchronous operation of adding the synchronized role.</returns>
-    [SlashCommand("unsyncrole", "Odebere roli na serveru.")]
+    [SlashCommand("removesyncrole", "Odebere roli na serveru.")]
     public async Task UnsyncRoleAsync(
         [Summary("Group", "Název skupiny která bude přidělena na serveru.")] string remoteRole, 
         [Summary("Role", "Role kterou odebrat ze synchronizace.")] SocketRole role)

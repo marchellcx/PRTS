@@ -48,7 +48,7 @@ public class MuteCommand : CommandBase, IServerSideCommand
                                                       $"&3ID profilu hráče&r: {info.TargetId}\n" +
                                                       $"&3ID profilu administrátora&r: {info.StaffId}\n" +
                                                       $"&3Důvod&r: {info.Reason}\n" +
-                                                      $"&3Expirace&r: {(info.IsPermanent ? "&1PERMANENTNÍ&r" : info.ExpiresAt.ToVeCzechString())}",
+                                                      $"&3Expirace&r: {(info.IsPermanent ? "&1PERMANENTNÍ&r" : info.ExpiresAt.ToLocalTime().ToVeCzechString())}",
                             tag: "PRTS");
                     }
                     else

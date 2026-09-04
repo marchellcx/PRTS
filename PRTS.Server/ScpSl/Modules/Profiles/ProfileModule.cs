@@ -8,6 +8,8 @@ using PRTS.RoleSync;
 using PRTS.Extensions;
 using PRTS.Profiles.Objects;
 
+using NiveraAPI.Extensions;
+
 namespace PRTS.ScpSl.Modules.Profiles;
 
 /// <summary>
@@ -108,7 +110,7 @@ public class ProfileModule : ScpSlModule
         if (!ProfileManager.TryGetProfileByUserId(reader.ReadString(), out var profile))
             return null;
 
-        return profile.Value.Sessions.ToDictionary();
+        return Enumerable.ToDictionary(profile.Value.Sessions);
     }
 
     /// <summary>
@@ -151,17 +153,10 @@ public class ProfileModule : ScpSlModule
             var syncRoles = RoleSyncRoles.GetRoles(roles, discordId);
             
             if (syncRoles == null || syncRoles.Length < 1)
-            {
-                Log.Debug($"No roles found for user &1{userId}&r");
                 return;
-            }
-            
-            Log.Debug($"Syncing roles for user &1{userId}&r: &3{string.Join(", ", syncRoles)}&r");
             
             CallRpcSetRoles(userId, syncRoles);
         }
-        
-        Log.Debug($"Starting session for user &1{userId}&r: &3{userNick}@{userIp}&r");
         
         var profile = ProfileManager.AddOrUpdateProfile(userId, userNick, userIp);
 
@@ -174,23 +169,27 @@ public class ProfileModule : ScpSlModule
                 Started = DateTime.UtcNow
             };
 
-            profile.Value.Sessions.TryAdd(sessionId, session);
-            
+            profile.Value.Sessions.TryAdd(sessionId, session);       
             profile.IsDirty = true;
             
             CallRpcStartSession(userId, sessionId);
-            
-            Log.Debug($"User &1{userId}&r has joined the server with session ID &1{sessionId}&r");
+
+            if (profile.Value.DiscordId == 0)
+            {
+                if (userId.TrySplit('@', true, 2, out var idSegments)
+                    && idSegments[1] == "discord"
+                    && ulong.TryParse(idSegments[0], out var discordId))
+                {
+                    profile.Value.DiscordId = discordId;
+                    profile.IsDirty = true;
+
+                    Log.Debug($"Synchronized Discord ID via game: &3{discordId}&r (profile &6{profile.Value.Id}&r");
+                }
+            }
             
             if (profile.Value.DiscordId != 0)
             {
-                Log.Debug($"User &1{userId}&r has connected Discord ID &1{profile.Value.DiscordId}&r");
-                
                 Task.Run(async () => await DiscordBot.TryGetRoleIds(0, profile.Value.DiscordId)).ContinueOnMainThread(profile.Value.DiscordId, SendRoles);
-            }
-            else
-            {
-                Log.Debug($"User &1{userId}&r has no connected Discord ID");
             }
         }
         else

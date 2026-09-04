@@ -44,7 +44,7 @@ public static class DbManager
     /// </summary>
     public static string NewId => Guid
         .NewGuid()
-        .ToString("N");
+        .ToString();
 
     /// <summary>
     /// Starts the database manager.

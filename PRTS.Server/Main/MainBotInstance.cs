@@ -6,6 +6,7 @@ using NiveraAPI.Utilities;
 using PRTS.Discord;
 using PRTS.Punishments;
 
+using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Reports;
 
 namespace PRTS.Main;
@@ -18,12 +19,14 @@ namespace PRTS.Main;
 public class MainBotInstance : DiscordBot
 {
     /// <summary>
-    /// A publicly accessible, static property that holds the singleton instance of the <see cref="MainBotInstance"/> class.
-    /// This property ensures that there is only a single instance of the bot at any given time and prevents multiple instances
-    /// from being created. It allows centralized access to the main bot functionalities and ensures that operations such as
-    /// role management and guild interactions can be performed through a single shared instance.
+    /// Gets the singleton instance of the MainBotInstance.
     /// </summary>
-    public static MainBotInstance Instance { get; private set; }
+    public static volatile MainBotInstance Instance;
+
+    /// <summary>
+    /// Event triggered when the bot is ready and fully initialized.
+    /// </summary>
+    public static event Action? Ready;
     
     internal MainBotInstance(ulong? primaryGuildId = null) : base("main", primaryGuildId)
     {
@@ -57,12 +60,15 @@ public class MainBotInstance : DiscordBot
         ActivityText = "Primitive Rhodes Island Terminal Service";
         
         RegisterCommands<MainCommands>();
+
+        Ready?.Invoke();
     }
 
     private Task _OnButtonExecuted(SocketMessageComponent component)
     {
         ThreadHelper.RunOnMainThread(() =>
         {
+            ScpSlMonitor.OnButton(component);
             ReportModule.OnButtonExecuted(component);    
             PunishmentManager.OnButtonExecuted(component);
         });

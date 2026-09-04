@@ -101,6 +101,11 @@ public static class TimeSpanExtensions
             }
         }
 
+        if (sb.Length < 1)
+        {
+            sb.Append("0 sekund");
+        }
+
         return sb.ReturnStringBuilderValue();
     }
 }

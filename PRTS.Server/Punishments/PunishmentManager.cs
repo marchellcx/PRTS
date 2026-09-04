@@ -477,22 +477,30 @@ public static class PunishmentManager
         if (punishmentInfo.IsRevoked)
         {
             builder.AddField(":calendar: Datum zrušení", punishmentInfo.RevokedAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss"));
-            builder.AddField(":question: Důvod zrušení", $"```{punishmentInfo.RevokedReason}```");
+
+            if (!string.IsNullOrEmpty(punishmentInfo.RevokedReason))
+                builder.AddField(":question: Důvod zrušení", $"```{punishmentInfo.RevokedReason}```");
         }
         else
         {
-            if (punishmentInfo.AppliedServers.Length > 0)
-            {
-                builder.AddField(":globe_with_meridians: Platné servery", string.Join("\n- ", punishmentInfo.AppliedServers));
-            }
-
             if (punishmentInfo.IsPermanent)
             {
-                builder.AddField(":calendar: Datum expirace", "**PERMANENTNÍ**");
+                builder.AddField(":x: Datum expirace", "**PERMANENTNÍ**");
             }
             else
             {
-                builder.AddField(":calendar: Datum expirace", punishmentInfo.ExpiresAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss"));
+                if (punishmentInfo.IsExpired)
+                {
+                    builder.WithColor(Color.DarkGrey);
+                    builder.AddField(":white_check_mark: Datum expirace", punishmentInfo.ExpiresAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss"));
+                }
+                else
+                {
+                    builder.AddField(":calendar: Datum expirace", punishmentInfo.ExpiresAt.ToLocalTime().ToString("dd.MM.yyyy HH:mm:ss"));
+
+                    if (punishmentInfo.AppliedServers.Length > 0)
+                        builder.AddField(":globe_with_meridians: Platné servery", string.Join("\n- ", punishmentInfo.AppliedServers));
+                }
             }
         }
     }

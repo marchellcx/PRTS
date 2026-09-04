@@ -51,7 +51,8 @@ public class DiscordBot : ServiceCollection
     
     internal static volatile ConcurrentDictionary<string, Func<SocketModal, Task>> modals = new();
     internal static volatile ConcurrentDictionary<string, Func<SocketModal, Task?>> menus = new();
-    
+    internal static volatile ConcurrentDictionary<string, Func<SocketMessageComponent, Task?>> buttons = new();
+
     /// <summary>
     /// The collection of all managed bots.
     /// </summary>
@@ -717,6 +718,7 @@ public class DiscordBot : ServiceCollection
         client.InteractionCreated += _InteractionCreated;
 
         client.ModalSubmitted += _ModalSubmitted;
+        client.ButtonExecuted += _ButtonExecuted;
         
         interactionService.SlashCommandExecuted += _SlashCommandExecuted;
     }
@@ -736,7 +738,8 @@ public class DiscordBot : ServiceCollection
         client.InteractionCreated -= _InteractionCreated;
         
         client.ModalSubmitted -= _ModalSubmitted;
-        
+        client.ButtonExecuted -= _ButtonExecuted;
+
         interactionService.SlashCommandExecuted -= _SlashCommandExecuted;
     }
 
@@ -896,6 +899,34 @@ public class DiscordBot : ServiceCollection
                         if (task == null)
                         {
                             menus.TryRemove(modal.Data.CustomId, out _);
+                        }
+                        else
+                        {
+                            await task;
+                        }
+                    });
+                }
+            }
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private Task _ButtonExecuted(SocketMessageComponent comp)
+    {
+        ThreadHelper.RunOnMainThread(() =>
+        {
+            if (!string.IsNullOrEmpty(comp.Data.CustomId))
+            {
+                if (buttons.TryGetValue(comp.Data.CustomId, out var buttonHandler))
+                {
+                    Task.Run(async () =>
+                    {
+                        var task = buttonHandler(comp);
+
+                        if (task == null)
+                        {
+                            buttons.TryRemove(comp.Data.CustomId, out _);
                         }
                         else
                         {

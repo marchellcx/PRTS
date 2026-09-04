@@ -309,10 +309,6 @@ public class PunishmentModule : PrtsModule
                     
                     ApiLog.Info($"Muted player {player.ToLogString()}");
                 }
-                else
-                {
-                    ApiLog.Debug($"Player {player.ToLogString()} is already muted");
-                }
             }
             else if (userPunishment.IsBan)
             {
@@ -378,10 +374,6 @@ public class PunishmentModule : PrtsModule
                     
                     ApiLog.Info($"Muted player {player.ToLogString()}");
                 }
-                else
-                {
-                    ApiLog.Debug($"Player {player.ToLogString()} is already muted");
-                }
             }
             else
             {
@@ -394,10 +386,6 @@ public class PunishmentModule : PrtsModule
 
                     ApiLog.Info($"Unmuted player {player.ToLogString()}");
                 }
-                else
-                {
-                    ApiLog.Debug($"Player {player.ToLogString()} is not muted");
-                }
             }
         }
         else
@@ -408,8 +396,6 @@ public class PunishmentModule : PrtsModule
 
     private static void OnPlayerVerified(ExPlayer player)
     {
-        ApiLog.Debug($"Handling player verification for player {player.ToLogString()}");
-        
         if (player.IsNorthwoodStaff)
         {
             ApiLog.Info($"Verified &3northwood staff&r player {player.ToLogString()}");
@@ -448,8 +434,6 @@ public class PunishmentModule : PrtsModule
                     }
                     else
                     {
-                        ApiLog.Debug($"Player {player.ToLogString()} is not banned");
-
                         if (list.TryGetFirst(p => p.IsMute, out var mute))
                         {
                             player.Mute(false);
@@ -464,7 +448,8 @@ public class PunishmentModule : PrtsModule
                         }
                         else
                         {
-                            ApiLog.Debug($"Player {player.ToLogString()} is not muted");
+                            player.Unmute(true);
+                            player.IntercomUnmute(true);
                         }
                         
                         PlayerVerified?.Invoke(player);
