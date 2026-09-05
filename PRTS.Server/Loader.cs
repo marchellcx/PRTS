@@ -170,6 +170,8 @@ public static class Loader
                                 continue;
 
                             inits.Add(new(method, initAttribute.Order));
+
+                            log.Debug($"Loaded init method &1{method}&r with order &1{initAttribute.Order}&r.");
                         }
                     }
                     catch (Exception ex)

@@ -14,8 +14,6 @@ using PRTS.ScpSl.Modules.Levels;
 
 using NiveraAPI.IO.Storage;
 
-using System.Text;
-
 namespace PRTS.Levels;
 
 /// <summary>
@@ -242,22 +240,14 @@ public static class LevelManager
     /// <returns>The <see cref="LevelInfo"/> corresponding to the specified XP.</returns>
     public static LevelInfo GetLevelForXp(int xp)
     {
-        log.Debug($"Retrieving level for XP: &3{xp}&r");
-
         var firstLevel = Levels[0];
         var lastLevel = Levels[Levels.Length - 1];
 
         if (xp == firstLevel.Experience)
-        {
-            log.Debug($"XP matches the first level's experience: &3{xp}&r (&6{firstLevel.Experience}&r)");
             return firstLevel;
-        }
 
         if (xp >= lastLevel.Experience)
-        {
-            log.Debug($"XP exceeds or matches the last level's experience: &3{xp}&r (&6{lastLevel.Experience}&r)");
             return lastLevel;
-        }
 
         for (var x = 0; x < Levels.Length; x++)
         {
@@ -266,13 +256,10 @@ public static class LevelManager
             if (level.Experience > xp)
             {
                 var newLevelIndex = Math.Max(0, x - 1);
-
-                log.Debug($"XP &3{xp}&r falls between level &6{Levels[newLevelIndex].Level}&r (XP: &6{Levels[newLevelIndex].Experience}&r) and level &6{level.Level}&r (XP: &6{level.Experience}&r). Returning level &6{Levels[newLevelIndex].Level}&r.");
                 return Levels[newLevelIndex];
             }
         }
 
-        log.Debug($"XP &3{xp}&r does not match any specific level. Returning last level &6{lastLevel.Level}&r.");
         return lastLevel;
     }
 
@@ -286,15 +273,11 @@ public static class LevelManager
     {
         if (xp != 0)
         {
-            log.Debug($"Modifying XP for user &1{profile.Value.UserId}&r by &3{xp}&r points.");
-
             var levels = profile.GetOrAddProperty<LevelProperty>(PropertyName);
             var experience = Math.Max(0, levels.Experience + xp);
 
             var curLevel = GetLevelForXp(levels.Experience);
             var newLevel = GetLevelForXp(experience);
-
-            log.Debug($"Current level: &6{curLevel.Level}&r (XP: &6{levels.Experience}&r), New level: &6{newLevel.Level}&r (XP: &6{experience}&r).");
 
             levels.Experience = experience;
 
@@ -376,9 +359,6 @@ public static class LevelManager
         Levels = new LevelInfo[LevelCap];
 
         var xp = 0;
-        var builder = new StringBuilder();
-
-        builder.AppendLine("Level Report");
 
         for (var x = 0; x < LevelCap; x++)
         {
@@ -413,16 +393,8 @@ public static class LevelManager
                 IsMaxLevel = x + 1 == LevelCap
             };
 
-            builder.AppendLine($"{info.Level} ({info.MilestoneName}): {info.Experience} XP");
-
             Levels[x] = info;
-
-            log.Debug($"Created level &1{info.Level}&r with &1{info.Experience}&r XP and milestone &1{info.MilestoneName}&r.");
         }
-
-        File.WriteAllText(Path.Combine(Directory.GetCurrentDirectory(), "level_report.txt"), builder.ToString());
-
-        builder.Clear();
 
         ProfileManager.ProfileEmbedBuilder += AppendLevel;
         

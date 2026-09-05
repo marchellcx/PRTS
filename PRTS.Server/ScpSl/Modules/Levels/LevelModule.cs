@@ -118,6 +118,8 @@ public class LevelModule : ScpSlModule
     public void CmdGetPlayerLevels(ByteReader reader, ByteWriter writer)
     {
         var ids = reader.ReadArray<string>();
+
+        writer.WriteInt32(ids.Length);
         
         for (var x = 0; x < ids.Length; x++)
         {

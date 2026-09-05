@@ -106,6 +106,8 @@ public static class DiscordVoiceRewards
         {
             utcUserVoiceDuration.TryRemove(user.Id, out _);
 
+            log.Info($"User {user.Username} joined voice channel {newState.VoiceChannel.Name}.");
+
             if (channelWhitelist.Length > 0 && !channelWhitelist.Contains(newState.VoiceChannel.Id))
                 return Task.CompletedTask;
 
@@ -113,15 +115,21 @@ public static class DiscordVoiceRewards
                 return Task.CompletedTask;
 
             utcUserVoiceDuration.TryAdd(user.Id, DateTime.UtcNow);
+
+            log.Debug($"Started tracking voice activity for user {user.Username}.");
         }
         else if (oldState.VoiceChannel != null && newState.VoiceChannel == null)
         {
             utcUserVoiceDuration.TryRemove(user.Id, out _);
+
+            log.Info($"User {user.Username} left voice channel {oldState.VoiceChannel.Name}.");
         }
         else if (oldState.VoiceChannel != null && newState.VoiceChannel != null && oldState.VoiceChannel.Id != newState.VoiceChannel.Id)
         {
             utcUserVoiceDuration.TryRemove(user.Id, out _);
 
+            log.Info($"User {user.Username} switched from voice channel {oldState.VoiceChannel.Name} to {newState.VoiceChannel.Name}.");
+
             if (channelWhitelist.Length > 0 && !channelWhitelist.Contains(newState.VoiceChannel.Id))
                 return Task.CompletedTask;
 
@@ -129,6 +137,8 @@ public static class DiscordVoiceRewards
                 return Task.CompletedTask;
 
             utcUserVoiceDuration.TryAdd(user.Id, DateTime.UtcNow);
+
+            log.Debug($"Started tracking voice activity for user {user.Username} in new channel.");
         }
 
         return Task.CompletedTask;
@@ -139,11 +149,15 @@ public static class DiscordVoiceRewards
         MainBotInstance.Instance.Client.UserVoiceStateUpdated += OnUserVoiceChanged;
 
         Task.Run(OnUpdateAsync);
+        
+        log.Info("DiscordVoiceRewards is now active and tracking voice activity.");
     }
 
     [Init]
     private static void Initialize()
     {
         MainBotInstance.Ready += OnReady;
+
+        log.Info($"Initialized DiscordVoiceRewards.");
     }
 }
