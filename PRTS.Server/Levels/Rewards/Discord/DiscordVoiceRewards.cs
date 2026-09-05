@@ -15,6 +15,8 @@ namespace PRTS.Levels.Rewards.Discord;
 /// </summary>
 public static class DiscordVoiceRewards
 {
+    private static volatile bool initialized;
+
     private static volatile int voiceInterval = 30;
     private static volatile int voiceAmount = 1;
 
@@ -146,6 +148,11 @@ public static class DiscordVoiceRewards
 
     private static void OnReady()
     {
+        if (initialized)
+            return;
+
+        initialized = true;
+
         MainBotInstance.Instance.Client.UserVoiceStateUpdated += OnUserVoiceChanged;
 
         Task.Run(OnUpdateAsync);

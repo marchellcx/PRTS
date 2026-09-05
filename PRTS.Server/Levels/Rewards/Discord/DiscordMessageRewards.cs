@@ -4,7 +4,6 @@ using Discord.WebSocket;
 using PRTS.Main;
 using PRTS.Discord;
 
-using NiveraAPI;
 using NiveraAPI.Logs;
 using NiveraAPI.Utilities;
 
@@ -23,9 +22,10 @@ namespace PRTS.Levels.Rewards.Discord;
 /// </summary>
 public static class DiscordMessageRewards
 {
+    private static bool initialized;
+
     private static LogSink log = LogManager.GetSource("Discord", "MessageRewards");
 
-    private static TimeSpan messageRewardRateLimitCleanupInterval;
     private static DiscordMessageRateLimit messageRateLimit = new();
 
     private static Dictionary<ulong, int> counters = new();
@@ -42,12 +42,6 @@ public static class DiscordMessageRewards
     /// </summary>
     [Config("level-rewards", "discord-message-reward-rate-limit-interval", "The interval in seconds for the message reward rate limit.")]
     public static int MessageRewardRateLimitInterval { get; set; } = 60;
-
-    /// <summary>
-    /// The interval in seconds at which to clean up the message reward rate limit.
-    /// </summary>
-    [Config("level-rewards", "discord-message-reward-rate-limit-cleanup-interval", "The interval in seconds at which to clean up the message reward rate limit.")]
-    public static int MessageRewardRateLimitCleanupInterval { get; set; } = 300;
 
     /// <summary>
     /// The number of messages a user must send to receive a reward.
@@ -84,7 +78,7 @@ public static class DiscordMessageRewards
         { 25000, 25 }
     };
 
-    private static void RewardTotalMessages(SocketMessage message, out StorageValue<ProfileInfo>? profile) 
+    private static void RewardTotalMessages(SocketMessage message, out StorageValue<ProfileInfo> profile) 
     {
         if (!profiles.TryGetValue(message.Author.Id, out profile)) 
         {
@@ -153,7 +147,7 @@ public static class DiscordMessageRewards
             RewardTotalMessages(message, out var profile);
 
             if (!counters.TryGetValue(message.Author.Id, out int count))
-                counters[message.Author.Id] = 0;
+                counters[message.Author.Id] = count = 1;
 
             if (count < MessageRewardCount)
             {
@@ -161,12 +155,11 @@ public static class DiscordMessageRewards
                 return;
             }
 
-            if (profile == null)
-                profile = ProfileManager.GetOrAddProfileWithDiscordId(message.Author.Id);
-
             LevelManager.ModifyProfileXp(profile, MessageRewardAmount);
 
             log.Debug($"Rewarded {MessageRewardAmount} XP to user {message.Author.Username} ({message.Author.Id}) for sending a message.");
+
+            counters.Remove(message.Author.Id);
         }
         catch (Exception ex)
         {
@@ -180,14 +173,13 @@ public static class DiscordMessageRewards
         return Task.CompletedTask;
     }
 
-    private static void OnUpdate()
-    {
-        if (messageRewardRateLimitCleanupInterval.TotalSeconds > 0)
-            messageRateLimit?.CleanupIdleUsers(messageRewardRateLimitCleanupInterval);
-    }
-
     private static void OnReady()
     {
+        if (initialized)
+            return;
+
+        initialized = true;
+
         MainBotInstance.Instance.Client.MessageReceived += _OnMessage;
 
         log.Info($"DiscordMessageRewards is now listening for messages.");
@@ -199,11 +191,7 @@ public static class DiscordMessageRewards
         messageRateLimit.Interval = TimeSpan.FromSeconds(MessageRewardRateLimitInterval);
         messageRateLimit.MaxMessages = MessageRewardRateLimitAmount;
 
-        messageRewardRateLimitCleanupInterval = TimeSpan.FromSeconds(MessageRewardRateLimitCleanupInterval);
-
         MainBotInstance.Ready += OnReady;
-
-        LibraryUpdate.Register(OnUpdate);
 
         log.Info($"Initialized DiscordMessageRewards.");
     }

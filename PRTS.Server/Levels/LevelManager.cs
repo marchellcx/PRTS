@@ -1,8 +1,12 @@
 using Fergun.Interactive;
 
 using NiveraAPI.Logs;
-using NiveraAPI.IO.Configs;
+using NiveraAPI.Extensions;
 
+using NiveraAPI.IO.Configs;
+using NiveraAPI.IO.Storage;
+
+using PRTS.Main;
 using PRTS.Profiles;
 
 using PRTS.Levels.Enums;
@@ -12,7 +16,7 @@ using PRTS.Profiles.Objects;
 using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Levels;
 
-using NiveraAPI.IO.Storage;
+using Discord.WebSocket;
 
 namespace PRTS.Levels;
 
@@ -50,6 +54,12 @@ public static class LevelManager
         { 10, "Intermediate" },
         { 20, "Advanced" }
     };
+
+    /// <summary>
+    /// Gets or sets the roles associated with specific levels. This property is configurable and can be adjusted to assign roles to players based on their achieved levels.
+    /// </summary>
+    [Config("level-manager", "roles", "Roles for specific levels.")]
+    public static Dictionary<int, ulong> Roles { get; set; } = new();
     
     private static volatile LogSink log = LogManager.GetSource("Core", "LevelManager");
     
@@ -98,7 +108,10 @@ public static class LevelManager
         levelProperty.Experience = 0;
 
         var level = GetLevelForXp(0);
-        
+
+        if (profile.Value.DiscordId != 0)
+            UpdateDiscordRoles(profile.Value, level.Level);
+
         ScpSlManager.BroadcastEntities<LevelModule>(module =>
         { 
             module.CallRpcNotifyChange(profile.Value.UserId, level.Level, levelProperty.Experience);
@@ -123,10 +136,13 @@ public static class LevelManager
 
         levelProperty.Experience = 0;
 
+        var level = GetLevelForXp(0);
+
+        if (profile.Value.DiscordId != 0)
+            UpdateDiscordRoles(profile.Value, level.Level);
+
         if (!string.IsNullOrEmpty(profile.Value.UserId))
         {
-            var level = GetLevelForXp(0);
-
             ScpSlManager.BroadcastEntities<LevelModule>(module =>
             {
                 module.CallRpcNotifyChange(profile.Value.UserId, level.Level, levelProperty.Experience);
@@ -204,6 +220,10 @@ public static class LevelManager
         if (addProperty)
         {
             levelProperty = profile.GetOrAddProperty<LevelProperty>(PropertyName);
+
+            if (profile.Value.DiscordId != 0)
+                UpdateDiscordRoles(profile.Value, GetLevelForXp(levelProperty.Experience).Level);
+
             return true;
         }
 
@@ -227,6 +247,10 @@ public static class LevelManager
         if (addProperty)
         {
             levelProperty = profile.GetOrAddProperty<LevelProperty>(PropertyName);
+
+            if (profile.Value.DiscordId != 0)
+                UpdateDiscordRoles(profile.Value, GetLevelForXp(levelProperty.Experience).Level);
+
             return true;
         }
 
@@ -276,8 +300,8 @@ public static class LevelManager
             var levels = profile.GetOrAddProperty<LevelProperty>(PropertyName);
             var experience = Math.Max(0, levels.Experience + xp);
 
-            var curLevel = GetLevelForXp(levels.Experience);
-            var newLevel = GetLevelForXp(experience);
+            var curLevel = GetLevelForXp(levels.Experience)!;
+            var newLevel = GetLevelForXp(experience)!;
 
             levels.Experience = experience;
 
@@ -288,8 +312,9 @@ public static class LevelManager
 
             if (curLevel.Level != newLevel.Level)
             {
-                log.Info($"Player &1{profile.Value.UserId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP and changed level from &1{curLevel.Level}&r to &1{newLevel?.Level ?? curLevel.Level}&r!");
+                log.Info($"Player &1{profile.Value.UserId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP and changed level from &1{curLevel.Level}&r to &1{newLevel.Level}&r!");
 
+                UpdateDiscordRoles(profile.Value, newLevel.Level);
                 return newLevel.Level > curLevel.Level
                     ? LevelModifyResult.LevelUp
                     : LevelModifyResult.LevelDown;
@@ -306,6 +331,66 @@ public static class LevelManager
         }
 
         return LevelModifyResult.Ok;
+    }
+
+    /// <summary>
+    /// Updates the Discord roles of a user based on their current level.
+    /// This method checks the user's level and assigns or removes roles accordingly, ensuring that the user's roles reflect their current level in the game.
+    /// </summary>
+    /// <param name="profile">The user's profile containing their level and Discord ID.</param>
+    public static void UpdateDiscordRoles(ProfileInfo profile, int level)
+    {
+        if (profile.DiscordId == 0)
+            return;
+
+        log.Info($"Updating Discord roles for user &1{profile.DiscordId}&r based on their current level."); 
+
+        if (Roles.Count < 1)
+        {
+            log.Debug($"No roles are configured for level progression, so no role updates will be performed for user &1{profile.DiscordId}&r.");
+            return;
+        }
+
+        if (MainBotInstance.Instance?.Client == null || MainBotInstance.Instance.PrimaryGuild == null)
+        {
+            log.Warn($"Discord bot instance is not properly initialized or connected, so role updates cannot be performed for user &1{profile.DiscordId}&r.");
+            return;
+        }
+
+        if (!MainBotInstance.Instance.IsConnected)
+        {
+            log.Warn($"Discord bot instance is not connected, so role updates cannot be performed for user &1{profile.DiscordId}&r.");
+            return;
+        }
+
+        var user = MainBotInstance.Instance.PrimaryGuild.GetUser(profile.DiscordId);
+
+        if (user == null)
+        {
+            log.Warn($"User &1{profile.DiscordId}&r is not a member of the primary guild, so role updates cannot be performed.");
+            return;
+        }
+
+        SocketRole? roleToAdd = null;
+
+        foreach (var kvp in Roles)
+        {
+            if (kvp.Key <= level)
+            {
+                roleToAdd = MainBotInstance.Instance.PrimaryGuild.GetRole(kvp.Value);
+            }
+            else if (user.Roles.TryGetFirst(r => r.Id == kvp.Value, out var role))
+            {
+                log.Info($"Removing role &1{role.Name}&r from user &1{profile.UserId}&r for dropping below level &1{level}&r.");
+                Task.Run(async () => await user.RemoveRoleAsync(role));
+            }
+        }
+
+        if (roleToAdd != null && !user.Roles.Any(r => r.Id == roleToAdd.Id))
+        {
+            log.Info($"Assigning role &1{roleToAdd.Name}&r to user &1{profile.DiscordId}&r for reaching level &1{level}&r.");
+            Task.Run(async () => await user.AddRoleAsync(roleToAdd));
+        }
     }
 
     private static void AppendLevel(ProfileInfo profile, Func<PageBuilder> factory, List<IPageBuilder> pages)
@@ -341,11 +426,30 @@ public static class LevelManager
         }
     }
 
+    private static void OnReady()
+    {
+        foreach (var profile in ProfileManager.Profiles.Values)
+        {
+            if (profile.Value is not StorageValue<ProfileInfo> storageProfile)
+                continue;
+
+            if (storageProfile.Value.DiscordId == 0)
+                continue;
+
+            if (!storageProfile.Value.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
+                continue;
+
+            var level = GetLevelForXp(levelProperty.Experience);
+
+            UpdateDiscordRoles(storageProfile.Value, level.Level);
+        }
+    }
+
     [Init]
     private static void Initialize()
     {
         ProfileManager.Properties.Add(PropertyName, typeof(LevelProperty));
-        
+
         ProfileManager.EnsureProperty(PropertyName, () =>
         {
             var property = new LevelProperty
@@ -397,7 +501,8 @@ public static class LevelManager
         }
 
         ProfileManager.ProfileEmbedBuilder += AppendLevel;
-        
+        MainBotInstance.Ready += OnReady;
+
         log.Info($"Initialized level system with &1{LevelCap}&r levels.");
     }
 }

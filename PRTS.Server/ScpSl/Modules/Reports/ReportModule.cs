@@ -37,7 +37,13 @@ public class ReportModule : ScpSlModule
     /// </summary>
     [Config("reports", "channel-id", "The ID of the channel where reports will be posted.")]
     public static ulong ReportChannelId { get; set; } = 0;
-    
+
+    /// <summary>
+    /// The ID of the role to ping when a report is submitted.
+    /// </summary>
+    [Config("reports", "role-ping-id", "The ID of the role to ping when a report is submitted.")]
+    public static ulong ReportRolePingId { get; set; } = 0;
+
     /// <summary>
     /// The directory containing the player reports.
     /// </summary>
@@ -510,8 +516,16 @@ public class ReportModule : ScpSlModule
 
         comps.WithButton("Hotovo", $"ReportResolved_{report.Id}", ButtonStyle.Success, Emoji.Parse(":white_check_mark:"));
         comps.WithButton("Zamítnout", $"ReportRejected_{report.Id}", ButtonStyle.Danger, Emoji.Parse(":x:"));
-        
-        return await textChannel.SendMessageAsync(embed: embed.Build(), components: comps.Build());       
+
+        string? message = null;
+
+        if (ReportRolePingId != 0)
+            message = MentionUtils.MentionRole(ReportRolePingId);
+
+        return await textChannel.SendMessageAsync(
+            text: message,
+            embed: embed.Build(), 
+            components: comps.Build());       
     }
 
     /// <summary>
