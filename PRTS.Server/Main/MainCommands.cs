@@ -15,6 +15,7 @@ using PRTS.Profiles;
 using PRTS.Database;
 using PRTS.RoleSync;
 using PRTS.Extensions;
+using NiveraAPI.Extensions;
 
 namespace PRTS.Main;
 
@@ -28,7 +29,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         [Summary("Hráč", "Hráč kterého chceš vidět profil.")] SocketUser? user = null)
     {
         user ??= Context.User;
-        
+
         if (!Context.TryGetBot(out var bot))
         {
             await RespondAsync(":x: | Bot nenalezen!", ephemeral: true);
@@ -45,11 +46,11 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         var builder = new StaticPaginatorBuilder();
         var page = new PageBuilder();
 
-        var segments = profile.Value.UserId.Split('@');
-
         Func<PageBuilder> factory;
 
-        if (segments[1] == "steam")
+        if (!string.IsNullOrEmpty(profile.Value.UserId)
+            && profile.Value.UserId.TrySplit('@', true, 2, out var segments) 
+            && segments[1] == "steam")
         {
             var info = await SteamClient.GetProfileInfoAsync(segments[0]);
 
@@ -104,7 +105,6 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         page.WithTitle(":globe_with_meridians: | Profil");
         page.WithColor(Color.Blue);
         page.WithCurrentTimestamp();
-        page.WithFooter($"ID: {profile.Value.Id}");
 
         page.AddField(":man_detective: První připojení", profile.Value.CreatedAt.ToLocalTime().ToVeCzechString());
         page.AddField(":knot: Poslední připojení", profile.Value.LastLogin.ToLocalTime().ToVeCzechString());
@@ -247,7 +247,8 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
             {
                 Id = DbManager.NewId,
                 Permissions = perms.Split(','),
-                IsAdministrator = isAdmin
+                IsAdministrator = isAdmin,
+                RoleIds = [role.Id]
             };
 
             StaffRole.Roles.AddStorageValue(staffRole.Id, () => staffRole);
@@ -353,7 +354,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
 
             id = string.Concat(id, "@steam");
 
-            if (!ProfileManager.TryGetProfileByUserId(id, out profile))
+            if (!ProfileManager.TryGetProfile(x => (!string.IsNullOrEmpty(x.UserId) && x.UserId == id) || x.DiscordId == Context.User.Id, out profile))
                 profile = ProfileManager.AddProfileWithUserId(id);
 
             profile.Value.DiscordId = Context.User.Id;

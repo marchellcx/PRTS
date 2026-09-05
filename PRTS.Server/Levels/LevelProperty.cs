@@ -9,25 +9,7 @@ namespace PRTS.Levels;
 /// </summary>
 public class LevelProperty : ProfileProperty
 {
-    private volatile int level = 0;
     private volatile int experience = 0;
-
-    /// <summary>
-    /// The user's level.
-    /// </summary>
-    public int Level
-    {
-        get => level;
-        set
-        {
-            if (value != level)
-            {
-                level = value;
-
-                IsDirty = true;
-            }
-        }
-    }
 
     /// <summary>
     /// The user's experience points.
@@ -61,7 +43,6 @@ public class LevelProperty : ProfileProperty
     /// </exception>
     public override void Read(ByteReader reader)
     {
-        level = reader.ReadInt32();
         experience = reader.ReadInt32();
     }
 
@@ -78,7 +59,6 @@ public class LevelProperty : ProfileProperty
     /// </exception>
     public override void Write(ByteWriter writer)
     {
-        writer.WriteInt32(level);
         writer.WriteInt32(experience);      
     }
 }

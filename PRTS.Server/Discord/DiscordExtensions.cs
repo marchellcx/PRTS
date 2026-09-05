@@ -10,8 +10,8 @@ using NiveraAPI.IO.Network.Entities;
 
 using PRTS.ScpSl;
 using PRTS.ScpSl.Discord;
+
 using PRTS.Staff;
-using System.Net.NetworkInformation;
 
 namespace PRTS.Discord;
 
@@ -441,7 +441,10 @@ public static class DiscordExtensions
             });
         }
 
-        await ctx.FollowupAsync(embed: embedBuilder.Build(), components: builder.Build(), ephemeral: ephemeral);
+        await ctx.RespondAsync(
+            embed: embedBuilder.Build(),
+            components: builder.Build(), 
+            ephemeral: ephemeral);
 
         var start = DateTime.Now;
 
@@ -493,7 +496,7 @@ public static class DiscordExtensions
             });
         }
 
-        await ctx.FollowupAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
+        await ctx.RespondAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
 
         var start = DateTime.Now;
 
@@ -548,7 +551,7 @@ public static class DiscordExtensions
             });
         }
 
-        await ctx.FollowupAsync(embed: embedBuilder.Build(), components: builder.Build(), ephemeral: ephemeral);
+        await ctx.RespondAsync(embed: embedBuilder.Build(), components: builder.Build(), ephemeral: ephemeral);
 
         var start = DateTime.Now;
 
@@ -600,7 +603,7 @@ public static class DiscordExtensions
             });
         }
 
-        await ctx.FollowupAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
+        await ctx.RespondAsync(text: msg, components: builder.Build(), ephemeral: ephemeral);
 
         var start = DateTime.Now;
 

@@ -2,7 +2,6 @@ using Discord;
 using Discord.Rest;
 using Discord.WebSocket;
 
-using NiveraAPI;
 using NiveraAPI.Logs;
 using NiveraAPI.Extensions;
 
@@ -28,6 +27,10 @@ using PRTS.Punishments.Objects;
 using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Reports;
 using PRTS.ScpSl.Modules.Punishments;
+
+using Fergun.Interactive;
+
+using NiveraAPI.Utilities;
 
 namespace PRTS.Punishments;
 
@@ -273,17 +276,11 @@ public static class PunishmentManager
     }
 
     /// <summary>
-    /// Expires an active, non-permanent punishment and updates its state accordingly.
+    /// Expires an active punishment, marking it as expired and updating its status accordingly.
     /// </summary>
-    /// <param name="punishment">
-    /// The punishment to expire. Must represent an active, non-permanent punishment.
-    /// </param>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown when the <paramref name="punishment"/> parameter is null.
-    /// </exception>
-    /// <exception cref="ArgumentException">
-    /// Thrown when the specified <paramref name="punishment"/> is not active or represents a permanent punishment.
-    /// </exception>
+    /// <param name="punishment">The punishment to expire. Must represent an active, non-permanent punishment.</param>
+    /// <exception cref="ArgumentNullException">Thrown when the <paramref name="punishment"/> parameter is null.</exception>
+    /// <exception cref="ArgumentException">Thrown when the specified <paramref name="punishment"/> is not active or represents a permanent punishment.</exception>
     public static void ExpirePunishment(StorageValue<PunishmentInfo> punishment)
     {
         if (punishment == null)
@@ -298,9 +295,57 @@ public static class PunishmentManager
         punishment.Value.Status = PunishmentStatus.Expired;
         punishment.IsDirty = true;
 
-        Task.Run(async () => UpdatePunishmentMessageAsync(punishment.Value));
+        Task.Run(async () => await UpdatePunishmentMessageAsync(punishment.Value));     
         
-        BroadcastRemovedPunishment(punishment);
+        Utils.RequireMain(() => BroadcastRemovedPunishment(punishment));
+    }
+
+    /// <summary>
+    /// Retrieves a string representation of the staff member associated with a given punishment.
+    /// </summary>
+    /// <param name="punishment">The punishment for which to retrieve the target's string representation.</param>
+    /// <returns>A string representation of the target associated with the punishment.</returns>
+    public static string GetTargetString(PunishmentInfo punishment)
+    {
+        if (!punishment.TryGetTargetProfile(out var targetProfile))
+            return "Neznámý hráč";
+
+        if (targetProfile.Value.DiscordId != 0)
+            return MentionUtils.MentionUser(targetProfile.Value.DiscordId);
+        else
+            return targetProfile.Value.GetNickname();
+    }
+
+    /// <summary>
+    /// Retrieves a string representation of the staff member who revoked a given punishment.
+    /// </summary>
+    /// <param name="punishment">The punishment for which to retrieve the revoker's string representation.</param>
+    /// <returns>A string representation of the staff member who revoked the punishment.</returns>
+    public static string GetRevokerString(PunishmentInfo punishment)
+    {
+        if (!punishment.TryGetRevokedProfile(out var revokerProfile))
+            return "Neznámý hráč";
+
+        if (revokerProfile.Value.DiscordId != 0)
+            return MentionUtils.MentionUser(revokerProfile.Value.DiscordId);
+        else
+            return revokerProfile.Value.GetNickname();
+    }
+
+    /// <summary>
+    /// Retrieves a string representation of the staff member associated with a given punishment.
+    /// </summary>
+    /// <param name="punishment">The punishment for which to retrieve the staff member's string representation.</param>
+    /// <returns>A string representation of the staff member associated with the punishment.</returns>
+    public static string GetStaffString(PunishmentInfo punishment)
+    {
+        if (!punishment.TryGetStaffProfile(out var staffProfile))
+            return "Neznámý administrátor";
+
+        if (staffProfile.Value.DiscordId != 0)
+            return MentionUtils.MentionUser(staffProfile.Value.DiscordId);
+        else
+            return staffProfile.Value.GetNickname();
     }
 
     private static async Task PostPunishmentAsync(StorageValue<PunishmentInfo> punishmentInfo)
@@ -563,29 +608,135 @@ public static class PunishmentManager
         active.Clear();
     }
 
-    private static void UpdatePunishments()
+    private static void AppendPunishments(ProfileInfo profile, Func<PageBuilder> pageFactory, List<IPageBuilder> pages)
     {
-        foreach (var kvp in Punishments.Values)
+        var punishments = GetPunishments(x => x.TargetId == profile.Id);
+
+        var activePunishments = punishments.Where(x => x.IsActive).ToList();
+        var permanentPunishments = activePunishments.Where(x => x.IsPermanent).ToList();
+
+        PageBuilder? punishmentsPage = null;
+
+        if (activePunishments.Count > 0)
         {
-            if (kvp.Value is not StorageValue<PunishmentInfo> value)
-                continue;
-            
-            if (!value.Value.IsActive)
-                continue;
+            var activeWarns = activePunishments.Where(x => x.Type is PunishmentType.Warn).ToList();
 
-            if (value.Value.IsPermanent)
-                continue;
-            
-            if (value.Value.expieryFlagged)
-                continue;
-
-            if (DateTime.UtcNow >= value.Value.ExpiresAt)
+            if (activeWarns.Count > 0)
             {
-                value.Value.expieryFlagged = true;
-            
-                log.Debug($"Flagging punishment &1{value.Value.Id}&r for expiration");
-                
-                ExpirePunishment(value);
+                var orderedWarns = activeWarns.OrderByDescending(x => x.IssuedAt).ToList();
+
+                var warnDescBuilder = Pools.PoolStringBuilder();
+                var warnBuilder = Pools.PoolStringBuilder();
+
+                foreach (var activeWarn in orderedWarns)
+                {
+                    warnBuilder.Clear();
+                    warnBuilder.AppendLine($":warning: Varování");
+                    warnBuilder.AppendLine($"**Administrátor**: {GetStaffString(activeWarn)}");
+                    warnBuilder.AppendLine($"**Datum udělení**: {activeWarn.IssuedAt.ToLocalTime().ToVeCzechString()}");
+                    warnBuilder.AppendLine($"**Důvod**: {activeWarn.Reason}");
+                    warnBuilder.AppendLine();
+
+                    if (warnDescBuilder.Length + warnBuilder.Length >= 4096)
+                        break;
+
+                    warnDescBuilder.Append(warnBuilder);
+                }
+
+                punishmentsPage ??= pageFactory();
+                punishmentsPage.WithDescription(warnDescBuilder.ReturnStringBuilderValue());
+
+                warnBuilder.ReturnStringBuilder();
+            }
+
+            if (permanentPunishments.TryGetFirst(x => x.Type is PunishmentType.Mute, out var permanentMute))
+            {
+                punishmentsPage ??= pageFactory();
+                punishmentsPage.AddField(":mute: Permanentní mute",
+                    $"**Administrátor**: {GetStaffString(permanentMute)}\n" +
+                    $"**Datum udělení**: {permanentMute.IssuedAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Důvod**: {permanentMute.Reason}");
+            }
+            else if (activePunishments.TryGetFirst(x => x.Type is PunishmentType.Mute, out var activeMute))
+            {
+                punishmentsPage ??= pageFactory();
+                punishmentsPage.AddField(":mute: Aktivní mute",
+                    $"**Administrátor**: {GetStaffString(activeMute)}\n" +
+                    $"**Datum udělení**: {activeMute.IssuedAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Platnost do**: {activeMute.ExpiresAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Důvod**: {activeMute.Reason}");
+            }
+
+            if (permanentPunishments.TryGetFirst(x => x.Type is PunishmentType.Ban, out var permanentBan))
+            {
+                punishmentsPage ??= pageFactory();
+                punishmentsPage.AddField(":no_entry: Permanentní ban",
+                    $"**Administrátor**: {GetStaffString(permanentBan)}\n" +
+                    $"**Datum udělení**: {permanentBan.IssuedAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Důvod**: {permanentBan.Reason}");
+            }
+            else if (activePunishments.TryGetFirst(x => x.Type is PunishmentType.Ban, out var activeBan))
+            {
+                punishmentsPage ??= pageFactory();
+                punishmentsPage.AddField(":no_entry: Aktivní ban",
+                    $"**Administrátor**: {GetStaffString(activeBan)}\n" +
+                    $"**Datum udělení**: {activeBan.IssuedAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Platnost do**: {activeBan.ExpiresAt.ToLocalTime().ToVeCzechString()}\n" +
+                    $"**Důvod**: {activeBan.Reason}");
+            }
+        }
+        else if (punishments.Count < 1)
+        {
+            (pages[0] as PageBuilder)?.AddField(":white_check_mark: Žádné tresty", "Tento hráč nemá žádné tresty.");
+        }
+        else if (punishments.Count > 0 && activePunishments.Count < 1)
+        {
+            (pages[0] as PageBuilder)?.AddField(":white_check_mark: Žádné aktivní tresty", $"Tento hráč nemá žádné aktivní tresty *({punishments.Count} expirovaných trestů)*.");
+        }
+    }
+
+    private static async Task UpdatePunishmentsAsync()
+    {
+        while (true)
+        {
+            await Task.Delay(100);
+
+            try
+            {
+                foreach (var kvp in Punishments.Values)
+                {
+                    try
+                    {
+                        if (kvp.Value is not StorageValue<PunishmentInfo> value)
+                            continue;
+
+                        if (!value.Value.IsActive)
+                            continue;
+
+                        if (value.Value.IsPermanent)
+                            continue;
+
+                        if (value.Value.expieryFlagged)
+                            continue;
+
+                        if (DateTime.UtcNow >= value.Value.ExpiresAt)
+                        {
+                            value.Value.expieryFlagged = true;
+
+                            log.Debug($"Flagging punishment &1{value.Value.Id}&r for expiration");
+
+                            ExpirePunishment(value);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        log.Error($"Error processing punishment &1{kvp.Key}&r:\n{ex}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error updating punishments:\n{ex}");
             }
         }
     }
@@ -701,7 +852,9 @@ public static class PunishmentManager
     private static void StorageInit_Punishments()
     {
         log.Info($"Loaded &1{Punishments.ValueCount}&r punishment(s)");
-        
-        LibraryUpdate.Register(UpdatePunishments);
+
+        ProfileManager.ProfileEmbedBuilder += AppendPunishments;
+
+        Task.Run(UpdatePunishmentsAsync);
     }
 }

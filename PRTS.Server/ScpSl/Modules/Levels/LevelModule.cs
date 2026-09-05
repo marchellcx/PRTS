@@ -14,23 +14,11 @@ public class LevelModule : ScpSlModule
     [IndexField] private static ushort rpc_RpcNotifyChange = 0;
 
     /// <summary>
-    /// Notifies the client about a change in a user's level and experience points, along with the associated reason.
+    /// Sends a remote procedure call (RPC) to notify clients about a change in a user's level and experience points.
     /// </summary>
-    /// <param name="userId">
-    /// The unique identifier of the user whose level and experience points were changed.
-    /// </param>
-    /// <param name="newLevel">
-    /// The updated level of the user.
-    /// </param>
-    /// <param name="newExperience">
-    /// The updated experience points of the user.
-    /// </param>
-    /// <param name="reasonId">
-    /// The identifier of the reason for the change.
-    /// </param>
-    /// <param name="reasonMessage">
-    /// A detailed message explaining the reason for the change.
-    /// </param>
+    /// <param name="userId">The unique identifier of the user whose level and experience points were changed.</param>
+    /// <param name="newLevel">The updated level of the user.</param>
+    /// <param name="newExperience">The updated experience points of the user.</param>
     public void CallRpcNotifyChange(string userId, int newLevel, int newExperience)
     {
         SendRemoteCallback(rpc_RpcNotifyChange, writer =>
@@ -43,14 +31,11 @@ public class LevelModule : ScpSlModule
     }
 
     /// <summary>
-    /// Resets the experience points and level of a specified user to default values.
+    /// Processes a server command to reset the experience points (XP) of a user and responds with
+    /// the result of the operation.
     /// </summary>
-    /// <param name="reader">
-    /// A <see cref="ByteReader"/> instance used to read the unique identifier of the user.
-    /// </param>
-    /// <param name="writer">
-    /// A <see cref="ByteWriter"/> instance used to write the result of the operation.
-    /// </param>
+    /// <param name="reader">A <see cref="ByteReader"/> instance used to read the input data for the command, including the user's unique identifier.</param>
+    /// <param name="writer">A <see cref="ByteWriter"/> instance used to write the command response, which includes the result of the XP reset operation.</param>
     [ServerCmd(true)]
     public void CmdResetXp(ByteReader reader, ByteWriter writer)
     {
@@ -61,24 +46,17 @@ public class LevelModule : ScpSlModule
     }
 
     /// <summary>
-    /// Processes a server command to modify the experience points (XP) of a user and responds with
-    /// the result of the modification operation.
+    /// Processes a server command to modify the experience points (XP) of a user and responds with the result of the operation.
     /// </summary>
-    /// <param name="reader">
-    /// A <see cref="ByteReader"/> instance used to read the input data for the command, including
-    /// the user's unique identifier and the XP value to be modified.
-    /// </param>
-    /// <param name="writer">
-    /// A <see cref="ByteWriter"/> instance used to write the command response,
-    /// which includes the result of the XP modification operation.
-    /// </param>
+    /// <param name="reader">A <see cref="ByteReader"/> instance used to read the input data for the command, including the user's unique identifier and the XP value to be modified.</param>
+    /// <param name="writer">A <see cref="ByteWriter"/> instance used to write the command response, which includes the result of the XP modification operation.</param>
     [ServerCmd(true)]
     public void CmdModifyXp(ByteReader reader, ByteWriter writer)
     {
         var userId = reader.ReadString();   
         var xp = reader.ReadInt32();
 
-        var result = LevelManager.ModifyXp(userId, xp);
+        var result = LevelManager.ModifyXpSteam(userId, xp);
         
         writer.WriteByte((byte)result);
     }
@@ -105,18 +83,12 @@ public class LevelModule : ScpSlModule
             writer.WriteString(level.MilestoneName);
         }
     }
-    
+
     /// <summary>
-    /// Handles the server command to retrieve the level and experience information
-    /// for a specified user, based on their unique user identifier.
+    /// Handles the server command to retrieve the level and experience information for a specific user.
     /// </summary>
-    /// <param name="reader">
-    /// The <see cref="ByteReader"/> used to read the user identifier from the incoming request.
-    /// </param>
-    /// <param name="writer">
-    /// The <see cref="ByteWriter"/> used to write the response data including
-    /// the success status, level, and experience back to the client.
-    /// </param>
+    /// <param name="reader">A <see cref="ByteReader"/> instance used to read the input data for the command, including the user's unique identifier.</param>
+    /// <param name="writer">A <see cref="ByteWriter"/> instance used to write the command response, which includes the result of the operation.</param>
     [ServerCmd(true)]
     public void CmdGetPlayerLevel(ByteReader reader, ByteWriter writer)
     {
@@ -124,9 +96,11 @@ public class LevelModule : ScpSlModule
 
         if (LevelManager.TryGetLevels(userId, true, out var levels))
         {
+            var level = LevelManager.GetLevelForXp(levels.Experience);
+
             writer.WriteBool(true);
 
-            writer.WriteInt32(levels.Level);
+            writer.WriteInt32(level.Level);
             writer.WriteInt32(levels.Experience);
         }
         else
@@ -153,9 +127,11 @@ public class LevelModule : ScpSlModule
 
             if (LevelManager.TryGetLevels(userId, true, out var levels))
             {
+                var level = LevelManager.GetLevelForXp(levels.Experience);
+
                 writer.WriteBool(true);
 
-                writer.WriteInt32(levels.Level);
+                writer.WriteInt32(level.Level);
                 writer.WriteInt32(levels.Experience);
             }
             else

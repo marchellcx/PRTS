@@ -88,6 +88,50 @@ public static class ProfileManager
     }
 
     /// <summary>
+    /// Creates a new profile associated with the specified Discord ID or retrieves an existing one if it already exists.
+    /// </summary>
+    /// <param name="discordId">The unique identifier of the Discord user for whom the profile is being created or retrieved.</param>
+    /// <returns>A <see cref="StorageValue{ProfileInfo}"/> containing the profile information. If a profile already exists for the specified Discord ID, it will return the existing profile. Otherwise, it creates and returns a new profile.</returns>
+    public static StorageValue<ProfileInfo> GetOrAddProfileWithDiscordId(ulong discordId)
+    {
+        if (TryGetProfile(x => x.DiscordId == discordId, out var profile))
+            return profile;
+
+        var id = DbManager.NewId;
+        var value = Profiles.AddStorageValue(id, () => new ProfileInfo());
+
+        value.Value.Id = id;
+        value.Value.DiscordId = discordId;
+        value.Value.CreatedAt = DateTime.UtcNow;
+        value.Value.ModifiedAt = DateTime.UtcNow;
+
+        foreach (var kvp in Properties)
+        {
+            try
+            {
+                if (Activator.CreateInstance(kvp.Value) is ProfileProperty profileProperty)
+                {
+                    profileProperty.Profile = value;
+                    profileProperty.OnAdded();
+
+                    value.Value.Properties.TryAdd(kvp.Key, profileProperty);
+                }
+                else
+                {
+                    log.Warn($"Could not create property &1{kvp.Value.Name}&r when adding new profile!");
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Could not add profile property to new profile:\n{ex}");
+            }
+        }
+
+        log.Debug($"Created new profile with ID &1{id}&r for Discord ID &3{discordId}&r!");
+        return value;
+    }
+
+    /// <summary>
     /// Creates a new profile associated with the specified user ID or retrieves an existing one if it already exists.
     /// </summary>
     /// <param name="userId">
@@ -480,6 +524,9 @@ public static class ProfileManager
         return Profiles.TryGetStorageValue(id, out profile);
     }
 
+    public static bool TryGetProfileByDiscordId(ulong discordId, out StorageValue<ProfileInfo> profile)
+            => TryGetProfile(x => x.DiscordId == discordId, out profile);
+
     /// <summary>
     /// Attempts to retrieve a profile by the user's unique identifier.
     /// </summary>
@@ -798,6 +845,45 @@ public static class ProfileManager
     private static void StorageInit_Profiles()
     {
         log.Debug("Loading profiles ..");
+
+        if (LibraryLoader.HasArgument("ProfilesReset"))
+        {
+            log.Warn($"Resetting all profiles!");
+
+            var syncedProfiles = new Dictionary<string, ulong>();
+
+            foreach (var kvp in Profiles.Values)
+            {
+                if (kvp.Value is not StorageValue<ProfileInfo> castValue)
+                    continue;
+
+                if (castValue.Value.DiscordId != 0)
+                    syncedProfiles.TryAdd(castValue.Value.UserId, castValue.Value.DiscordId);
+            }
+
+            log.Info($"Preserving {syncedProfiles.Count} profiles!");
+
+            Profiles.ClearValues(true);
+
+            foreach (var kvp in syncedProfiles)
+            {
+                var profile = new ProfileInfo
+                {
+                    Id = DbManager.NewId,
+
+                    UserId = kvp.Key,
+                    DiscordId = kvp.Value,
+
+                    CreatedAt = DateTime.UtcNow,
+                    LastLogin = DateTime.UtcNow,
+                    ModifiedAt = DateTime.UtcNow
+                };
+
+                Profiles.AddStorageValue(profile.Id, () => profile);
+
+                log.Info($"Preserved profile &3{profile.UserId}&r (&6{profile.DiscordId}&r)!");
+            }
+        }
         
         if (!TryGetProfile(x => x.UserId == "SERVER", out var serverProfile))
         {

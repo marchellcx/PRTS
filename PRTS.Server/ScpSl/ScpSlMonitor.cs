@@ -1,27 +1,35 @@
 ﻿using NiveraAPI.IO.Configs;
 
+using System.Text;
 using System.Collections.Concurrent;
-
-using PRTS.Core.Attributes;
-using PRTS.Discord.MessageCache;
 
 using Discord;
 using Discord.WebSocket;
 
-using PRTS.Main;
-
 using NiveraAPI.Logs;
 using NiveraAPI.Utilities;
-
-using PRTS.ScpSl.Modules.Plugins;
-
 using NiveraAPI.Extensions;
 
+using PRTS.Main;
+using PRTS.Levels;
 using PRTS.Discord;
-using PRTS.ScpSl.Discord;
-using PRTS.Punishments;
 using PRTS.Profiles;
 using PRTS.Extensions;
+
+using PRTS.Punishments;
+using PRTS.Punishments.Enums;
+
+using PRTS.ScpSl.Discord;
+using PRTS.ScpSl.Modules.Plugins;
+
+using PRTS.Profiles.Objects;
+using PRTS.Core.Attributes;
+using PRTS.Discord.MessageCache;
+
+using NiveraAPI.IO.Storage;
+
+using Fergun.Interactive;
+using Fergun.Interactive.Pagination;
 
 namespace PRTS.ScpSl;
 
@@ -182,6 +190,12 @@ public class ScpSlMonitor
             else
                 builder.AddField(":stopwatch: | TPS", Server.Tps);
 
+            if (Server.IsRoundLocked)
+                builder.AddField(":lock: | Stav kola", "Zamčeno");
+
+            if (Server.IsLobbyLocked)
+                builder.AddField(":lock: | Stav lobby", "Zamčeno");
+
             var provider = Server.LatencyProvider;
 
             if (IsHighLatency)
@@ -203,9 +217,10 @@ public class ScpSlMonitor
 
             if (Server.PluginManagerModule != null)
             {
+                var plugins = Server.PluginManagerModule.Plugins.OrderBy(x => x.Name.Length);
                 var pluginsBuilder = Pools.PoolStringBuilder();
 
-                foreach (var plugin in Server.PluginManagerModule.Plugins)
+                foreach (var plugin in plugins)
                     pluginsBuilder.AppendLine($"- **[{plugin.Name}]** v{plugin.Version}");
 
                 builder.AddField(":gear: | Seznam pluginů", pluginsBuilder.ReturnStringBuilderValue());
@@ -220,18 +235,19 @@ public class ScpSlMonitor
                 {
                     if (kvp.Value.Profile == null)
                     {
-                        playersBuilder.AppendLine($"- [{kvp.Value.Country}] **{kvp.Value.Nick}** ({kvp.Value.Ping} ms)");
+                        playersBuilder.AppendLine($"- **[{kvp.Value.Country}]** {kvp.Value.Nick} *({kvp.Value.Ping} ms)*");
                     }
                     else
                     {
+                        var level = LevelManager.GetLevelForXp(kvp.Value.Level?.Experience ?? 0);
+
                         if (kvp.Value.Profile.Value.DiscordId != 0)
                         {
-                            playersBuilder.AppendLine($"- [{kvp.Value.Country}] **{kvp.Value.Nick}** ({kvp.Value.Ping} ms, level {kvp.Value.Level?.Level ?? 0}) - <@{kvp.Value.Profile.Value.DiscordId}>");
-
+                            playersBuilder.AppendLine($"- **[{kvp.Value.Country} - {level.Level}]** <@{kvp.Value.Profile.Value.DiscordId}> *({kvp.Value.Ping} ms)*");
                         }
                         else
                         {
-                            playersBuilder.AppendLine($"- [{kvp.Value.Country}] **{kvp.Value.Nick}** ({kvp.Value.Ping} ms, level {kvp.Value.Level?.Level ?? 0})");
+                            playersBuilder.AppendLine($"- **[{kvp.Value.Country} - {level.Level}]** {kvp.Value.Nick} *({kvp.Value.Ping} ms)*");
                         }
                     }
                 }
@@ -258,75 +274,96 @@ public class ScpSlMonitor
     {
         var commandRow = new ActionRowBuilder();
         var punishmentRow = new ActionRowBuilder();
+        var punishmentSearchRow = new ActionRowBuilder();
+        var levelRow = new ActionRowBuilder();
 
         commandRow.WithButton("Příkaz", $"Monitor_{Alias}_Command", ButtonStyle.Primary, Emoji.Parse(":calling:"));
         commandRow.WithButton("Vypnout", $"Monitor_{Alias}_Shutdown", ButtonStyle.Danger, Emoji.Parse(":octagonal_sign:"));
         commandRow.WithButton("Restartovat", $"Monitor_{Alias}_Restart", ButtonStyle.Success, Emoji.Parse(":arrows_counterclockwise:"));
+        commandRow.WithButton("Restartovat kolo", $"Monitor_{Alias}_RestartRound", ButtonStyle.Success, Emoji.Parse(":arrows_counterclockwise:"));
+        commandRow.WithButton("Upravit round / lobby lock", $"Monitor_{Alias}_UpdateLocks", ButtonStyle.Secondary, Emoji.Parse(":lock:"));
 
         punishmentRow.WithButton("Kick", $"Monitor_{Alias}_Kick", ButtonStyle.Primary, Emoji.Parse(":boot:"));
         punishmentRow.WithButton("Ban", $"Monitor_{Alias}_Ban", ButtonStyle.Danger, Emoji.Parse(":no_entry:"));
         punishmentRow.WithButton("Mute", $"Monitor_{Alias}_Mute", ButtonStyle.Secondary, Emoji.Parse(":mute:"));
         punishmentRow.WithButton("Warn", $"Monitor_{Alias}_Warn", ButtonStyle.Secondary, Emoji.Parse(":warning:"));
 
+        punishmentSearchRow.WithButton("Zrušit trest", $"Monitor_{Alias}_Revoke", ButtonStyle.Secondary, Emoji.Parse(":x:"));
+        punishmentSearchRow.WithButton("Vyhledat trest", $"Monitor_{Alias}_Search", ButtonStyle.Secondary, Emoji.Parse(":mag:"));
+
+        levelRow.WithButton("Upravit level", $"Monitor_{Alias}_EditLevel", ButtonStyle.Secondary, Emoji.Parse(":star:"));
+        levelRow.WithButton("Resetovat level", $"Monitor_{Alias}_ResetLevel", ButtonStyle.Danger, Emoji.Parse(":x:"));
+
         builder.WithActionRow(commandRow);
         builder.WithActionRow(punishmentRow);
+        builder.WithActionRow(punishmentSearchRow);
+        builder.WithActionRow(levelRow);
     }
 
     private void OnServerCommand(SocketMessageComponent component)
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("SendRemoteCommands"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k odesílání příkazů na server", ephemeral: true);
-                return;
+                if (!component.HasPermission("SendRemoteCommands"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k odesílání příkazů na server", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+
+                builder.WithTitle("Spustit příkaz na serveru");
+                builder.WithCustomId($"ModalCommand_{Alias}");
+
+                builder.AddTextInput("Příkaz", "CommandInput", placeholder: "Zadejte příkaz, který chcete spustit na serveru", required: true);
+
+                var modal = await component.AwaitModalResponseAsync(builder, TimeSpan.FromMinutes(2));
+
+                if (modal == null)
+                {
+                    log.Error($"Received null modal");
+                    return;
+                }
+
+                if (!modal.Data.Components.TryGetFirst(x => x.CustomId == "CommandInput", out var commandInput))
+                {
+                    await modal.RespondAsync(":x: | Nebyl nalezen text input v modalu", ephemeral: true);
+                    return;
+                }
+
+                if (ScpSlCommands.ProhibitedCommands.Any(str => commandInput.Value.StartsWith(str, StringComparison.OrdinalIgnoreCase)))
+                {
+                    await modal.RespondAsync(":x: | Tento příkaz je zakázán", ephemeral: true);
+                    return;
+                }
+
+                if (ScpSlCommands.WhitelistedCommands.Length > 0 && !ScpSlCommands.WhitelistedCommands.Any(str => commandInput.Value.StartsWith(str, StringComparison.OrdinalIgnoreCase)))
+                {
+                    await modal.RespondAsync(":x: | Tento příkaz není na whitelistu", ephemeral: true);
+                    return;
+                }
+
+                await modal.DeferAsync(true);
+
+                var command = commandInput.Value;
+                var response = await Server.AwaitServerEntityResponseAsync<ScpSlServer, string>((s, callback) => s.CallRpcInvokeCommand(command, callback), TimeSpan.FromMinutes(2));
+
+                if (!string.IsNullOrEmpty(response))
+                {
+                    await modal.FollowupAsync($":white_check_mark: | Příkaz `{command}` byl úspěšně odeslán na server. Odpověď serveru:\n```{response}```", ephemeral: true);
+                }
+                else
+                {
+                    await modal.FollowupAsync($":x: | Příkaz `{command}` byl odeslán na server, ale server neodpověděl.", ephemeral: true);
+                }
             }
-
-            var builder = new ModalBuilder();
-
-            builder.WithTitle("Spustit příkaz na serveru");
-            builder.WithCustomId($"ModalCommand_{Alias}");
-
-            builder.AddTextInput("Příkaz", "CommandInput", placeholder: "Zadejte příkaz, který chcete spustit na serveru", required: true);
-
-            var modal = await component.AwaitModalResponseAsync(builder, TimeSpan.FromMinutes(2));
-
-            if (modal == null)
+            catch (Exception ex)
             {
-                log.Error($"Received null modal");
-                return;
-            }
+                log.Error($"Error while executing command: {ex}");
 
-            if (!modal.Data.Components.TryGetFirst(x => x.CustomId == "CommandInput", out var commandInput))
-            {
-                await modal.RespondAsync(":x: | Nebyl nalezen text input v modalu", ephemeral: true);
-                return;
-            }
-
-            if (ScpSlCommands.ProhibitedCommands.Any(str => commandInput.Value.StartsWith(str, StringComparison.OrdinalIgnoreCase)))
-            {
-                await modal.RespondAsync(":x: | Tento příkaz je zakázán", ephemeral: true);
-                return;
-            }
-
-            if (ScpSlCommands.WhitelistedCommands.Length > 0 && !ScpSlCommands.WhitelistedCommands.Any(str => commandInput.Value.StartsWith(str, StringComparison.OrdinalIgnoreCase)))
-            {
-                await modal.RespondAsync(":x: | Tento příkaz není na whitelistu", ephemeral: true);
-                return;
-            }
-
-            await modal.DeferAsync(true);
-
-            var command = commandInput.Value;
-            var response = await Server.AwaitServerEntityResponseAsync<ScpSlServer, string>((s, callback) => s.CallRpcInvokeCommand(command, callback), TimeSpan.FromMinutes(2));
-
-            if (!string.IsNullOrEmpty(response))
-            {
-                await modal.FollowupAsync($":white_check_mark: | Příkaz `{command}` byl úspěšně odeslán na server. Odpověď serveru:\n```{response}```", ephemeral: true);
-            }
-            else
-            {
-                await modal.FollowupAsync($":x: | Příkaz `{command}` byl odeslán na server, ale server neodpověděl.", ephemeral: true);
+                await component.RespondAsync($":x: | Došlo k chybě při odesílání příkazu na server: {ex.Message}", ephemeral: true);
             }
         });
     }
@@ -335,16 +372,25 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("ShutdownServer"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k vypnutí serveru", ephemeral: true);
-                return;
+                if (!component.HasPermission("ShutdownServer"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k vypnutí serveru", ephemeral: true);
+                    return;
+                }
+
+                await component.DeferAsync(true);
+                await ThreadHelper.RunOnMainThread(() => Server.CallRpcShutdown());
+
+                await component.FollowupAsync(":white_check_mark: | Server byl úspěšně vypnut", ephemeral: true);
             }
+            catch (Exception ex)
+            {
+                log.Error($"Error while shutting down server: {ex}");
 
-            await component.DeferAsync(true);
-            await ThreadHelper.RunOnMainThread(() => Server.CallRpcShutdown());
-
-            await component.FollowupAsync(":white_check_mark: | Server byl úspěšně vypnut", ephemeral: true);
+                await component.RespondAsync($":x: | Došlo k chybě při vypínání serveru: {ex.Message}", ephemeral: true);
+            }
         });
     }
 
@@ -352,16 +398,106 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("RestartServer"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k restartování serveru", ephemeral: true);
-                return;
+                if (!component.HasPermission("RestartServer"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k restartování serveru", ephemeral: true);
+                    return;
+                }
+
+                await component.DeferAsync(true);
+                await ThreadHelper.RunOnMainThread(() => Server.CallRpcRestart());
+
+                await component.FollowupAsync(":white_check_mark: | Server byl úspěšně restartován", ephemeral: true);
             }
+            catch (Exception ex)
+            {
+                log.Error($"Error while restarting server: {ex}");
 
-            await component.DeferAsync(true);
-            await ThreadHelper.RunOnMainThread(() => Server.CallRpcRestart());
+                await component.RespondAsync($":x: | Došlo k chybě při restartování serveru: {ex.Message}", ephemeral: true);
+            }
+        });
+    }
 
-            await component.FollowupAsync(":white_check_mark: | Server byl úspěšně restartován", ephemeral: true);
+    private void OnServerRoundRestart(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (!component.HasPermission("RestartRound"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k restartování kola", ephemeral: true);
+                    return;
+                }
+
+                await component.DeferAsync(true);
+                await ThreadHelper.RunOnMainThread(() => Server.CallRpcRestartRound());
+
+                await component.FollowupAsync(":white_check_mark: | Kolo bylo úspěšně restartováno", ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error while restarting round: {ex}");
+
+                await component.RespondAsync($":x: | Došlo k chybě při restartování kola: {ex.Message}", ephemeral: true);
+            }
+        });
+    }
+
+    private void OnServerUpdateLocks(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (!component.HasPermission("UpdateRoundOrLobbyLock"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k aktualizaci zámků kola nebo lobby", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+
+                builder.WithTitle("Upravit zámky kola a lobby");
+                builder.WithCustomId($"ModalUpdateLocks_{Alias}");
+
+                var roundLockCheckBox = new CheckboxBuilder()
+                    .WithCustomId("RoundLockCheckbox")
+                    .WithDefaultState(Server.IsRoundLocked);
+
+                var lobbyLockCheckBox = new CheckboxBuilder()
+                    .WithCustomId("LobbyLockCheckbox")
+                    .WithDefaultState(Server.IsLobbyLocked);
+
+                builder.AddCheckBox("Zámek kola", roundLockCheckBox, "Zaškrtněte, pokud chcete zamknout kolo");
+                builder.AddCheckBox("Zámek lobby", lobbyLockCheckBox, "Zaškrtněte, pokud chcete zamknout lobby");
+
+                var response = await component.AwaitModalResponseAsync(builder, TimeSpan.FromMinutes(2));
+
+                if (response == null)
+                {
+                    log.Error($"Received null modal");
+                    return;
+                }
+
+                var roundLock = response.Data.Components.TryGetFirst(x => x.CustomId == "RoundLockCheckbox", out var roundLockComponent) && roundLockComponent.BoolValue.HasValue && roundLockComponent.BoolValue.Value;
+                var lobbyLock = response.Data.Components.TryGetFirst(x => x.CustomId == "LobbyLockCheckbox", out var lobbyLockComponent) && lobbyLockComponent.BoolValue.HasValue && lobbyLockComponent.BoolValue.Value;
+
+                await response.RespondAsync($":white_check_mark: | Zámky kola a lobby byly úspěšně aktualizovány. Kolo: {(roundLock ? "Zamčeno" : "Odemčeno")}, Lobby: {(lobbyLock ? "Zamčeno" : "Odemčeno")}", ephemeral: true);
+
+                await ThreadHelper.RunOnMainThread(() =>
+                {
+                    Server.CallRpcSetRoundLock(roundLock);
+                    Server.CallRpcSetLobbyLock(lobbyLock);
+                });
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error while updating locks: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při aktualizaci zámků kola nebo lobby: {ex.Message}", ephemeral: true);
+            }
         });
     }
 
@@ -369,68 +505,82 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("KickPlayers"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k vykopnutí hráče", ephemeral: true);
-                return;
-            }
-
-            var builder = new ModalBuilder();
-            var menuBuilder = new SelectMenuBuilder();
-
-            menuBuilder.WithCustomId("KickPlayerSelect");
-            menuBuilder.WithMinValues(1);
-            menuBuilder.WithRequired(true);
-
-            foreach (var kvp in Server.Players)
-            {
-                var optionBuilder = new SelectMenuOptionBuilder();
-
-                optionBuilder.WithValue(kvp.Key);
-                optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
-                
-                menuBuilder.AddOption(optionBuilder);
-            }
-
-            builder.WithCustomId($"ServerKick_{Alias}");
-            builder.WithTitle("Výběr hráče k vykopnutí");
-            
-            builder.AddTextInput("Důvod", "KickReason", placeholder: "Zadejte důvod vykopnutí hráče", required: true);
-            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k vykopnutí");
-
-            async Task Response(SocketModal modal)
-            {
-                if (!modal.TryGetComponent("KickReason", out var reasonInput))
+                if (!component.HasPermission("KickPlayers"))
                 {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod vykopnutí", ephemeral: true);
+                    await component.RespondAsync(":x: | Nemáte oprávnění k vykopnutí hráče", ephemeral: true);
                     return;
                 }
 
-                if (!modal.TryGetComponent("KickPlayerSelect", out var playerSelect))
+                if (Server.Players.Count < 1)
                 {
-                    await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
+                    await component.RespondAsync(":x: | Na serveru není žádný hráč k vykopnutí", ephemeral: true);
                     return;
                 }
 
-                var players = Server.Players
-                    .Where(kvp => playerSelect.Values.Contains(kvp.Key))
-                    .Select(kvp => kvp.Key);
+                var builder = new ModalBuilder();
+                var menuBuilder = new SelectMenuBuilder();
 
-                if (players.Count() < 1)
+                menuBuilder.WithCustomId("KickPlayerSelect");
+                menuBuilder.WithMinValues(1);
+                menuBuilder.WithRequired(true);
+
+                foreach (var kvp in Server.Players)
                 {
-                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k vykopnutí", ephemeral: true);
-                    return;
+                    var optionBuilder = new SelectMenuOptionBuilder();
+
+                    optionBuilder.WithValue(kvp.Key);
+                    optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
+
+                    menuBuilder.AddOption(optionBuilder);
                 }
 
-                var reason = reasonInput.Value;
+                builder.WithCustomId($"ServerKick_{Alias}");
+                builder.WithTitle("Výběr hráče k vykopnutí");
 
-                await modal.DeferAsync(true);
-                await ThreadHelper.RunOnMainThread(() => Server.CallRpcKick(reason, players));
+                builder.AddTextInput("Důvod", "KickReason", placeholder: "Zadejte důvod vykopnutí hráče", required: true);
+                builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k vykopnutí");
 
-                await modal.FollowupAsync($":white_check_mark: | Hráči `{string.Join(", ", players)}` byli úspěšně vykopnuti ze serveru s důvodem: `{reason}`", ephemeral: true);
+                async Task Response(SocketModal modal)
+                {
+                    if (!modal.TryGetComponent("KickReason", out var reasonInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod vykopnutí", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("KickPlayerSelect", out var playerSelect))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
+                        return;
+                    }
+
+                    var players = Server.Players
+                        .Where(kvp => playerSelect.Values.Contains(kvp.Key))
+                        .Select(kvp => kvp.Key);
+
+                    if (players.Count() < 1)
+                    {
+                        await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k vykopnutí", ephemeral: true);
+                        return;
+                    }
+
+                    var reason = reasonInput.Value;
+
+                    await modal.DeferAsync(true);
+                    await ThreadHelper.RunOnMainThread(() => Server.CallRpcKick(reason, players));
+
+                    await modal.FollowupAsync($":white_check_mark: | Hráči `{string.Join(", ", players)}` byli úspěšně vykopnuti ze serveru s důvodem: `{reason}`", ephemeral: true);
+                }
+
+                await component.RespondMenuAsync(builder, Response);
             }
-
-            await component.RespondMenuAsync(builder, Response);
+            catch (Exception ex)
+            {
+                log.Error($"Error while kicking player: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při vykopávání hráče: {ex.Message}", ephemeral: true);
+            }
         });
     }
 
@@ -438,130 +588,144 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("BanPlayers"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k zabanování hráče", ephemeral: true);
-                return;
-            }
+                if (!component.HasPermission("BanPlayers"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k zabanování hráče", ephemeral: true);
+                    return;
+                }
 
-            if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                if (Server.Players.Count < 1)
+                {
+                    await component.RespondAsync(":x: | Na serveru není žádný hráč k zabanování", ephemeral: true);
+                    return;
+                }
+
+                if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                {
+                    await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+                var menuBuilder = new SelectMenuBuilder();
+
+                menuBuilder.WithCustomId("BanPlayerSelect");
+
+                menuBuilder.WithMinValues(1);
+                menuBuilder.WithMaxValues(1);
+
+                menuBuilder.WithRequired(true);
+
+                foreach (var kvp in Server.Players)
+                {
+                    var optionBuilder = new SelectMenuOptionBuilder();
+
+                    optionBuilder.WithValue(kvp.Key);
+                    optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
+
+                    menuBuilder.AddOption(optionBuilder);
+                }
+
+                builder.WithCustomId($"ServerBan_{Alias}");
+                builder.WithTitle("Výběr hráče k zabanování");
+
+                builder.AddTextInput("Důvod", "BanReason", placeholder: "Zadejte důvod zabanování hráče", required: true);
+                builder.AddTextInput("Délka", "BanDuration", placeholder: "Zadejte délku banování hráče (např. 1d, 2h, 30m) (0s je PERMANENTNÍ)", required: true);
+
+                builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k zabanování");
+
+                async Task Response(SocketModal modal)
+                {
+                    if (!modal.TryGetComponent("BanReason", out var reasonInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod zabanování", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("BanDuration", out var durationInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro délku banování", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("BanPlayerSelect", out var playerSelect))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
+                        return;
+                    }
+
+                    if (!TimeUtils.TryParseTime(durationInput.Value, out var duration))
+                    {
+                        await modal.RespondAsync(":x: | Délka banování není ve správném formátu", ephemeral: true);
+                        return;
+                    }
+
+                    var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
+
+                    if (player.Key == null)
+                    {
+                        await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k zabanování", ephemeral: true);
+                        return;
+                    }
+
+                    if (player.Value.Profile == null)
+                    {
+                        await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho zabanovat", ephemeral: true);
+                        return;
+                    }
+
+                    var reason = reasonInput.Value;
+
+                    var confirmButton = new ButtonBuilder()
+                        .WithLabel("Potvrdit")
+                        .WithCustomId($"ConfirmBan_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Danger)
+                        .WithEmote(Emoji.Parse(":white_check_mark:"));
+
+                    var cancelButton = new ButtonBuilder()
+                        .WithLabel("Zrušit")
+                        .WithCustomId($"CancelBan_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Secondary)
+                        .WithEmote(Emoji.Parse(":x:"));
+
+                    var embed = new EmbedBuilder()
+                        .WithTitle("Potvrzení banování hráče")
+                        .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
+                        .AddField(":question: Důvod", reason)
+                        .AddField(":hourglass: Délka", duration <= TimeSpan.Zero ? "PERMANENTNÍ" : duration.ToFullCzechString())
+                        .WithColor(Color.Orange);
+
+                    var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
+
+                    if (button == null)
+                    {
+                        await modal.FollowupAsync(":x: | Banování hráče bylo zrušeno (čas vypršel)", ephemeral: true);
+                        return;
+                    }
+
+                    if (button.Data.CustomId.StartsWith("CancelBan"))
+                    {
+                        await button.RespondAsync(":x: | Banování hráče bylo zrušeno", ephemeral: true);
+                        return;
+                    }
+
+                    var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Ban, duration <= TimeSpan.Zero ? null : DateTime.UtcNow.Add(duration), "Discord", null, reason);
+
+                    if (info != null)
+                        await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen ban ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
+                    else
+                        await button.RespondAsync($":x: | Nepodařilo se udělit ban hráči `{player.Key}`", ephemeral: true);
+                }
+
+                await component.RespondMenuAsync(builder, Response);
+            }
+            catch (Exception ex)
             {
-                await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
-                return;
+                log.Error($"Error while banning player: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při banování hráče: {ex.Message}", ephemeral: true);
             }
-
-            var builder = new ModalBuilder();
-            var menuBuilder = new SelectMenuBuilder();
-
-            menuBuilder.WithCustomId("BanPlayerSelect");
-
-            menuBuilder.WithMinValues(1);
-            menuBuilder.WithMaxValues(1);
-
-            menuBuilder.WithRequired(true);
-
-            foreach (var kvp in Server.Players)
-            {
-                var optionBuilder = new SelectMenuOptionBuilder();
-
-                optionBuilder.WithValue(kvp.Key);
-                optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
-
-                menuBuilder.AddOption(optionBuilder);
-            }
-
-            builder.WithCustomId($"ServerBan_{Alias}");
-            builder.WithTitle("Výběr hráče k zabanování");
-
-            builder.AddTextInput("Důvod", "BanReason", placeholder: "Zadejte důvod zabanování hráče", required: true);
-            builder.AddTextInput("Délka", "BanDuration", placeholder: "Zadejte délku banování hráče (např. 1d, 2h, 30m) (0s je PERMANENTNÍ)", required: true);
-
-            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k zabanování");
-
-            async Task Response(SocketModal modal)
-            {
-                if (!modal.TryGetComponent("BanReason", out var reasonInput))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod zabanování", ephemeral: true);
-                    return;
-                }
-
-                if (!modal.TryGetComponent("BanDuration", out var durationInput))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro délku banování", ephemeral: true);
-                    return;
-                }
-
-                if (!modal.TryGetComponent("BanPlayerSelect", out var playerSelect))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
-                    return;
-                }
-
-                if (!TimeUtils.TryParseTime(durationInput.Value, out var duration))
-                {
-                    await modal.RespondAsync(":x: | Délka banování není ve správném formátu", ephemeral: true);
-                    return;
-                }
-
-                var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
-
-                if (player.Key == null)
-                {
-                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k zabanování", ephemeral: true);
-                    return;
-                }
-
-                if (player.Value.Profile == null)
-                {
-                    await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho zabanovat", ephemeral: true);
-                    return;
-                }
-
-                var reason = reasonInput.Value;
-
-                var confirmButton = new ButtonBuilder()
-                    .WithLabel("Potvrdit")
-                    .WithCustomId($"ConfirmBan_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Danger)
-                    .WithEmote(Emoji.Parse(":white_check_mark:"));
-
-                var cancelButton = new ButtonBuilder()
-                    .WithLabel("Zrušit")
-                    .WithCustomId($"CancelBan_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Secondary)
-                    .WithEmote(Emoji.Parse(":x:"));
-
-                var embed = new EmbedBuilder()
-                    .WithTitle("Potvrzení banování hráče")
-                    .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
-                    .AddField(":question: Důvod", reason)
-                    .AddField(":hourglass: Délka", duration <= TimeSpan.Zero ? "PERMANENTNÍ" : duration.ToFullCzechString())
-                    .WithColor(Color.Orange);
-
-                var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
-
-                if (button == null)
-                {
-                    await modal.FollowupAsync(":x: | Banování hráče bylo zrušeno (čas vypršel)", ephemeral: true);
-                    return;
-                }
-
-                if (button.Data.CustomId.StartsWith("CancelBan"))
-                {
-                    await button.RespondAsync(":x: | Banování hráče bylo zrušeno", ephemeral: true);
-                    return;
-                }
-
-                var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Ban, duration <= TimeSpan.Zero ? null : DateTime.UtcNow.Add(duration), "Discord", null, reason);
-
-                if (info != null)
-                    await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen ban ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
-                else
-                    await button.RespondAsync($":x: | Nepodařilo se udělit ban hráči `{player.Key}`", ephemeral: true);
-            }
-
-            await component.RespondMenuAsync(builder, Response);
         });
     }
 
@@ -569,130 +733,144 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("MutePlayers"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění ke ztlumení hráče", ephemeral: true);
-                return;
-            }
+                if (!component.HasPermission("MutePlayers"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění ke ztlumení hráče", ephemeral: true);
+                    return;
+                }
 
-            if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                if (Server.Players.Count < 1)
+                {
+                    await component.RespondAsync(":x: | Na serveru není žádný hráč k ztlumení", ephemeral: true);
+                    return;
+                }
+
+                if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                {
+                    await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+                var menuBuilder = new SelectMenuBuilder();
+
+                menuBuilder.WithCustomId("MutePlayerSelect");
+
+                menuBuilder.WithMinValues(1);
+                menuBuilder.WithMaxValues(1);
+
+                menuBuilder.WithRequired(true);
+
+                foreach (var kvp in Server.Players)
+                {
+                    var optionBuilder = new SelectMenuOptionBuilder();
+
+                    optionBuilder.WithValue(kvp.Key);
+                    optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
+
+                    menuBuilder.AddOption(optionBuilder);
+                }
+
+                builder.WithCustomId($"ServerMute_{Alias}");
+                builder.WithTitle("Výběr hráče k ztlumení");
+
+                builder.AddTextInput("Důvod", "MuteReason", placeholder: "Zadejte důvod ztlumení hráče", required: true);
+                builder.AddTextInput("Délka", "MuteDuration", placeholder: "Zadejte délku ztlumení hráče (např. 1d, 2h, 30m) (0s je PERMANENTNÍ)", required: true);
+
+                builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k ztlumení");
+
+                async Task Response(SocketModal modal)
+                {
+                    if (!modal.TryGetComponent("MuteReason", out var reasonInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod ztlumení", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("MuteDuration", out var durationInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro délku ztlumení", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("MutePlayerSelect", out var playerSelect))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
+                        return;
+                    }
+
+                    if (!TimeUtils.TryParseTime(durationInput.Value, out var duration))
+                    {
+                        await modal.RespondAsync(":x: | Délka ztlumení není ve správném formátu", ephemeral: true);
+                        return;
+                    }
+
+                    var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
+
+                    if (player.Key == null)
+                    {
+                        await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k ztlumení", ephemeral: true);
+                        return;
+                    }
+
+                    if (player.Value.Profile == null)
+                    {
+                        await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho ztlumit", ephemeral: true);
+                        return;
+                    }
+
+                    var reason = reasonInput.Value;
+
+                    var confirmButton = new ButtonBuilder()
+                        .WithLabel("Potvrdit")
+                        .WithCustomId($"ConfirmMute_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Danger)
+                        .WithEmote(Emoji.Parse(":white_check_mark:"));
+
+                    var cancelButton = new ButtonBuilder()
+                        .WithLabel("Zrušit")
+                        .WithCustomId($"CancelMute_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Secondary)
+                        .WithEmote(Emoji.Parse(":x:"));
+
+                    var embed = new EmbedBuilder()
+                        .WithTitle("Potvrzení ztlumení hráče")
+                        .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
+                        .AddField(":question: Důvod", reason)
+                        .AddField(":hourglass: Délka", duration <= TimeSpan.Zero ? "PERMANENTNÍ" : duration.ToFullCzechString())
+                        .WithColor(Color.Orange);
+
+                    var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
+
+                    if (button == null)
+                    {
+                        await modal.FollowupAsync(":x: | Ztlumení hráče bylo zrušeno (čas vypršel)", ephemeral: true);
+                        return;
+                    }
+
+                    if (button.Data.CustomId.StartsWith("CancelMute"))
+                    {
+                        await button.RespondAsync(":x: | Ztlumení hráče bylo zrušeno", ephemeral: true);
+                        return;
+                    }
+
+                    var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Mute, duration <= TimeSpan.Zero ? null : DateTime.UtcNow.Add(duration), "Discord", null, reason);
+
+                    if (info != null)
+                        await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen mute ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
+                    else
+                        await button.RespondAsync($":x: | Nepodařilo se udělit mute hráči `{player.Key}`", ephemeral: true);
+                }
+
+                await component.RespondMenuAsync(builder, Response);
+            }
+            catch (Exception ex)
             {
-                await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
-                return;
+                log.Error($"Error while muting player: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při ztlumení hráče: {ex.Message}", ephemeral: true);
             }
-
-            var builder = new ModalBuilder();
-            var menuBuilder = new SelectMenuBuilder();
-
-            menuBuilder.WithCustomId("MutePlayerSelect");
-
-            menuBuilder.WithMinValues(1);
-            menuBuilder.WithMaxValues(1);
-
-            menuBuilder.WithRequired(true);
-
-            foreach (var kvp in Server.Players)
-            {
-                var optionBuilder = new SelectMenuOptionBuilder();
-
-                optionBuilder.WithValue(kvp.Key);
-                optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
-
-                menuBuilder.AddOption(optionBuilder);
-            }
-
-            builder.WithCustomId($"ServerMute_{Alias}");
-            builder.WithTitle("Výběr hráče k ztlumení");
-
-            builder.AddTextInput("Důvod", "MuteReason", placeholder: "Zadejte důvod ztlumení hráče", required: true);
-            builder.AddTextInput("Délka", "MuteDuration", placeholder: "Zadejte délku ztlumení hráče (např. 1d, 2h, 30m) (0s je PERMANENTNÍ)", required: true);
-
-            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k ztlumení");
-
-            async Task Response(SocketModal modal)
-            {
-                if (!modal.TryGetComponent("MuteReason", out var reasonInput))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod ztlumení", ephemeral: true);
-                    return;
-                }
-
-                if (!modal.TryGetComponent("MuteDuration", out var durationInput))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro délku ztlumení", ephemeral: true);
-                    return;
-                }
-
-                if (!modal.TryGetComponent("MutePlayerSelect", out var playerSelect))
-                {
-                    await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
-                    return;
-                }
-
-                if (!TimeUtils.TryParseTime(durationInput.Value, out var duration))
-                {
-                    await modal.RespondAsync(":x: | Délka ztlumení není ve správném formátu", ephemeral: true);
-                    return;
-                }
-
-                var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
-
-                if (player.Key == null)
-                {
-                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k ztlumení", ephemeral: true);
-                    return;
-                }
-
-                if (player.Value.Profile == null)
-                {
-                    await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho ztlumit", ephemeral: true);
-                    return;
-                }
-
-                var reason = reasonInput.Value;
-
-                var confirmButton = new ButtonBuilder()
-                    .WithLabel("Potvrdit")
-                    .WithCustomId($"ConfirmMute_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Danger)
-                    .WithEmote(Emoji.Parse(":white_check_mark:"));
-
-                var cancelButton = new ButtonBuilder()
-                    .WithLabel("Zrušit")
-                    .WithCustomId($"CancelMute_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Secondary)
-                    .WithEmote(Emoji.Parse(":x:"));
-
-                var embed = new EmbedBuilder()
-                    .WithTitle("Potvrzení ztlumení hráče")
-                    .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
-                    .AddField(":question: Důvod", reason)
-                    .AddField(":hourglass: Délka", duration <= TimeSpan.Zero ? "PERMANENTNÍ" : duration.ToFullCzechString())
-                    .WithColor(Color.Orange);
-
-                var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
-
-                if (button == null)
-                {
-                    await modal.FollowupAsync(":x: | Ztlumení hráče bylo zrušeno (čas vypršel)", ephemeral: true);
-                    return;
-                }
-
-                if (button.Data.CustomId.StartsWith("CancelMute"))
-                {
-                    await button.RespondAsync(":x: | Ztlumení hráče bylo zrušeno", ephemeral: true);
-                    return;
-                }
-
-                var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Mute, duration <= TimeSpan.Zero ? null : DateTime.UtcNow.Add(duration), "Discord", null, reason);
-
-                if (info != null)
-                    await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen mute ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
-                else
-                    await button.RespondAsync($":x: | Nepodařilo se udělit mute hráči `{player.Key}`", ephemeral: true);
-            }
-
-            await component.RespondMenuAsync(builder, Response);
         });
     }
 
@@ -700,26 +878,422 @@ public class ScpSlMonitor
     {
         Task.Run(async () =>
         {
-            if (!component.HasPermission("WarnPlayers"))
+            try
             {
-                await component.RespondAsync(":x: | Nemáte oprávnění k varování hráče", ephemeral: true);
+                if (!component.HasPermission("WarnPlayers"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k varování hráče", ephemeral: true);
+                    return;
+                }
+
+                if (Server.Players.Count < 1)
+                {
+                    await component.RespondAsync(":x: | Na serveru není žádný hráč k varování", ephemeral: true);
+                    return;
+                }
+
+                if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                {
+                    await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+                var menuBuilder = new SelectMenuBuilder();
+
+                menuBuilder.WithCustomId("WarnPlayerSelect");
+
+                menuBuilder.WithMinValues(1);
+                menuBuilder.WithMaxValues(1);
+
+                menuBuilder.WithRequired(true);
+
+                foreach (var kvp in Server.Players)
+                {
+                    var optionBuilder = new SelectMenuOptionBuilder();
+
+                    optionBuilder.WithValue(kvp.Key);
+                    optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
+
+                    menuBuilder.AddOption(optionBuilder);
+                }
+
+                builder.WithCustomId($"ServerWarn_{Alias}");
+                builder.WithTitle("Výběr hráče k varování");
+
+                builder.AddTextInput("Důvod", "WarnReason", placeholder: "Zadejte důvod varování hráče", required: true);
+                builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k varování");
+
+                async Task Response(SocketModal modal)
+                {
+                    if (!modal.TryGetComponent("WarnReason", out var reasonInput))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod varování", ephemeral: true);
+                        return;
+                    }
+
+                    if (!modal.TryGetComponent("WarnPlayerSelect", out var playerSelect))
+                    {
+                        await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
+                        return;
+                    }
+
+                    var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
+
+                    if (player.Key == null)
+                    {
+                        await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k varování", ephemeral: true);
+                        return;
+                    }
+
+                    if (player.Value.Profile == null)
+                    {
+                        await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho varovat", ephemeral: true);
+                        return;
+                    }
+
+                    var reason = reasonInput.Value;
+
+                    var confirmButton = new ButtonBuilder()
+                        .WithLabel("Potvrdit")
+                        .WithCustomId($"ConfirmWarn_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Danger)
+                        .WithEmote(Emoji.Parse(":white_check_mark:"));
+
+                    var cancelButton = new ButtonBuilder()
+                        .WithLabel("Zrušit")
+                        .WithCustomId($"CancelWarn_{Alias}_{player.Key}")
+                        .WithStyle(ButtonStyle.Secondary)
+                        .WithEmote(Emoji.Parse(":x:"));
+
+                    var embed = new EmbedBuilder()
+                        .WithTitle("Potvrzení varování hráče")
+                        .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
+                        .AddField(":question: Důvod", reason)
+                        .WithColor(Color.Orange);
+
+                    var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
+
+                    if (button == null)
+                    {
+                        await modal.FollowupAsync(":x: | Varování hráče bylo zrušeno (čas vypršel)", ephemeral: true);
+                        return;
+                    }
+
+                    if (button.Data.CustomId.StartsWith("CancelWarn"))
+                    {
+                        await button.RespondAsync(":x: | Varování hráče bylo zrušeno", ephemeral: true);
+                        return;
+                    }
+
+                    var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Warn, null, "Discord", null, reason);
+
+                    if (info != null)
+                        await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen varování ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
+                    else
+                        await button.RespondAsync($":x: | Nepodařilo se udělit varování hráči `{player.Key}`", ephemeral: true);
+                }
+
+                await component.RespondMenuAsync(builder, Response);
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error while warning player: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při varování hráče: {ex.Message}", ephemeral: true);
+            }
+        });
+    }
+
+    private void OnSearchPunishments(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (!component.HasPermission("SearchPunishments"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k vyhledávání trestů", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+
+                var checkBoxGroup = new CheckboxGroupBuilder()
+                    .WithCustomId("SearchPunishmentFilters")
+                    .WithRequired(false);
+
+                checkBoxGroup.AddOption("Pouze aktivní tresty", "SearchOnlyActive", "Zaškrtněte, pokud chcete vyhledávat pouze aktivní tresty", false);
+                checkBoxGroup.AddOption("Pouze permanentní tresty", "SearchOnlyPermanent", "Zaškrtněte, pokud chcete vyhledávat pouze permanentní tresty", false);
+
+                var typeMenuBuilder = new SelectMenuBuilder();
+
+                typeMenuBuilder.WithCustomId("SearchPunishmentTypeSelect");
+
+                typeMenuBuilder.WithMinValues(1);
+                typeMenuBuilder.WithMaxValues(3);
+
+                typeMenuBuilder.AddOption("Ban", "Ban", "Trest typu Ban", Emoji.Parse(":no_entry:"), true);
+                typeMenuBuilder.AddOption("Mute", "Mute", "Trest typu Mute", Emoji.Parse(":mute:"), true);
+                typeMenuBuilder.AddOption("Warn", "Warn", "Trest typu Warn", Emoji.Parse(":warning:"), true);
+
+                builder.WithTitle($"Filtry pro hledání trestů");
+                builder.WithCustomId($"ModalSearchPunishments_{Alias}");
+
+                builder.AddCheckBoxGroup("Filtry", checkBoxGroup, "Vyberte filtry pro hledání trestů");
+
+                builder.AddTextInput("Hráč (nick nebo ID)", "SearchPlayer", placeholder: "Zadejte nick nebo ID hráče, jehož tresty chcete vyhledat", required: false);
+                builder.AddTextInput("Administrátor (nick nebo ID)", "SearchAdmin", placeholder: "Zadejte nick nebo ID administrátora, jehož tresty chcete vyhledat", required: false);
+                builder.AddTextInput("Datum", "SearchDate", placeholder: "Zadejte datum od (..yyyy-MM-dd nebo yyyy-MM-dd..yyyy-MM-dd nebo yyyy-MM-dd..)", required: false);
+
+                builder.AddSelectMenu("Vyberte typ trestu", typeMenuBuilder, "Vyberte typ trestu");
+
+                var response = await component.AwaitModalResponseAsync(builder, TimeSpan.FromMinutes(2));
+
+                if (response == null)
+                {
+                    log.Error($"Received null modal");
+                    return;
+                }
+
+                StorageValue<ProfileInfo>? playerProfile = null;
+                StorageValue<ProfileInfo>? adminProfile = null;
+
+                DateTime? dateFrom = null;
+                DateTime? dateTo = null;
+
+                var searchPlayer = response.Data.Components.TryGetFirst(x => x.CustomId == "SearchPlayer", out var playerInput) ? playerInput.Value : null;
+                var searchAdmin = response.Data.Components.TryGetFirst(x => x.CustomId == "SearchAdmin", out var adminInput) ? adminInput.Value : null;
+                var searchDate = response.Data.Components.TryGetFirst(x => x.CustomId == "SearchDate", out var dateInput) ? dateInput.Value : null;
+                var searchCheckboxes = response.Data.Components.TryGetFirst(x => x.CustomId == "SearchPunishmentFilters", out var checkboxGroup) ? checkboxGroup.Values : new List<string>();
+
+                var hasSearchPlayer = !string.IsNullOrWhiteSpace(searchPlayer) && ProfileManager.TryGetProfile(x => x.Nicknames.Any(kvp => kvp.Key.Equals(searchPlayer, StringComparison.OrdinalIgnoreCase)) || x.UserId.Equals(searchPlayer, StringComparison.OrdinalIgnoreCase), out playerProfile);
+                var hasSearchAdmin = !string.IsNullOrWhiteSpace(searchAdmin) && ProfileManager.TryGetProfile(x => x.Nicknames.Any(kvp => kvp.Key.Equals(searchAdmin, StringComparison.OrdinalIgnoreCase)) || x.UserId.Equals(searchAdmin, StringComparison.OrdinalIgnoreCase), out adminProfile);
+                var hasSearchDate = !string.IsNullOrWhiteSpace(searchDate) && Utils.TryParseDateRange(searchDate, out dateFrom, out dateTo);
+
+                var selectedTypes = response.Data.Components.TryGetFirst(x => x.CustomId == "SearchPunishmentTypeSelect", out var typeSelect) ? typeSelect.Values : new List<string>();
+                var selectedTypesParsed = selectedTypes.Select(x => Enum.TryParse<PunishmentType>(x, out var type) ? type : (PunishmentType?)null).Where(x => x.HasValue).Select(x => x.Value).ToList();
+
+                var onlyActive = searchCheckboxes.Contains("SearchOnlyActive");
+                var onlyPermanent = searchCheckboxes.Contains("SearchOnlyPermanent");
+
+                var punishments = PunishmentManager.GetPunishments(x =>
+                    (!hasSearchPlayer || (x.TargetId == playerProfile.Value.Id)) &&
+                    (!hasSearchAdmin || (x.StaffId == adminProfile.Value.Id)) &&
+                    (!dateFrom.HasValue || x.IssuedAt >= dateFrom) &&
+                    (!dateTo.HasValue || x.IssuedAt <= dateTo) &&
+                    (selectedTypesParsed.Count == 0 || selectedTypesParsed.Contains(x.Type)) &&
+                    (!onlyActive || x.IsActive) &&
+                    (!onlyPermanent || x.IsPermanent)
+                );
+
+                if (punishments.Count == 0)
+                {
+                    await response.RespondAsync(":x: | Nebyly nalezeny žádné tresty odpovídající zadaným filtrům", ephemeral: true);
+                    return;
+                }
+
+                var pages = new StaticPaginatorBuilder();
+
+                foreach (var punishment in punishments)
+                {
+                    var page = new PageBuilder();
+
+                    page.AddField(":main_detective: Administrátor", PunishmentManager.GetStaffString(punishment));
+                    page.AddField(":bust_in_silhouette: Hráč", PunishmentManager.GetTargetString(punishment));
+                    page.AddField(":question: Důvod", punishment.Reason);
+                    page.AddField(":hourglass: Datum udělení", punishment.IssuedAt.ToLocalTime().ToVeCzechString());
+
+                    if (punishment.IsActive)
+                    {
+                        if (punishment.IsPermanent)
+                        {
+                            page.WithColor(Color.Red);
+                            page.AddField(":hourglass: Datum expirace", "PERMANENTNÍ");
+
+                            switch (punishment.Type)
+                            {
+                                case PunishmentType.Warn:
+                                    page.WithTitle($":warning: | Permanentní varování");
+                                    break;
+
+                                case PunishmentType.Mute:
+                                    page.WithTitle($":mute: | Permanentní ztlumení");
+                                    break;
+
+                                case PunishmentType.Ban:
+                                    page.WithTitle($":no_entry: | Permanentní ban");
+                                    break;
+                            }
+                        }
+                        else
+                        {
+                            page.WithColor(Color.Orange);
+                            page.AddField(":hourglass: Datum expirace", punishment.ExpiresAt.ToLocalTime().ToVeCzechString());
+
+                            switch (punishment.Type)
+                            {
+                                case PunishmentType.Warn:
+                                    page.WithTitle($":warning: | Aktivní varování");
+                                    break;
+
+                                case PunishmentType.Mute:
+                                    page.WithTitle($":mute: | Aktivní ztlumení");
+                                    break;
+
+                                case PunishmentType.Ban:
+                                    page.WithTitle($":no_entry: | Aktivní ban");
+                                    break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        page.WithColor(Color.DarkGrey);
+                        page.AddField(":white_check_mark: Datum expirace", punishment.ExpiresAt.ToLocalTime().ToVeCzechString());
+
+                        switch (punishment.Type)
+                        {
+                            case PunishmentType.Warn:
+                                page.WithTitle($":warning: | Expirované varování");
+                                break;
+
+                            case PunishmentType.Mute:
+                                page.WithTitle($":mute: | Expirované ztlumení");
+                                break;
+
+                            case PunishmentType.Ban:
+                                page.WithTitle($":no_entry: | Expirovaný ban");
+                                break;
+                        }
+                    }
+
+                    if (punishment.IsRevoked)
+                    {
+                        page.WithColor(Color.DarkGrey);
+
+                        page.AddField(":link: Administrátor zrušení", PunishmentManager.GetRevokerString(punishment));
+
+                        page.AddField(":x: Datum zrušení", punishment.RevokedAt.ToLocalTime().ToVeCzechString());
+                        page.AddField(":x: Důvod zrušení", punishment.RevokedReason);
+                    }
+
+                    page.WithFooter($"ID: {punishment.Id}");
+                    pages.AddPage(page);
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error while searching punishments: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při vyhledávání trestů: {ex.Message}", ephemeral: true);
+            }
+        });
+    }
+
+    private void OnRevokePunishment(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (!component.HasPermission("RevokePunishments"))
+                {
+                    await component.RespondAsync(":x: | Nemáte oprávnění k zrušení trestu", ephemeral: true);
+                    return;
+                }
+
+                if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+                {
+                    await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
+                    return;
+                }
+
+                var builder = new ModalBuilder();
+
+                builder.WithTitle("Zrušení trestu hráče");
+                builder.WithCustomId($"ModalRevoke_{Alias}");
+
+                builder.AddTextInput("ID trestu", "RevokeId", placeholder: "Zadejte ID trestu, který chcete zrušit", required: true);
+                builder.AddTextInput("Důvod", "RevokeReason", placeholder: "Zadejte důvod zrušení trestu", required: true);
+
+                var response = await component.AwaitModalResponseAsync(builder, TimeSpan.FromMinutes(2));
+
+                if (response == null)
+                {
+                    log.Error($"Received null modal");
+                    return;
+                }
+
+                if (!response.Data.Components.TryGetFirst(x => x.CustomId == "RevokeId", out var idInput))
+                {
+                    await response.RespondAsync(":x: | Nebyl nalezen text input pro ID trestu", ephemeral: true);
+                    return;
+                }
+
+                if (!response.Data.Components.TryGetFirst(x => x.CustomId == "RevokeReason", out var reasonInput))
+                {
+                    await response.RespondAsync(":x: | Nebyl nalezen text input pro důvod zrušení trestu", ephemeral: true);
+                    return;
+                }
+
+                if (!PunishmentManager.TryGetPunishment(x => x.Id == idInput.Value, out var punishment))
+                {
+                    await response.RespondAsync($":x: | Nebyl nalezen trest s ID `{idInput.Value}`", ephemeral: true);
+                    return;
+                }
+
+                var permission = string.Concat(
+                    "Manage",
+                    punishment.Value.IsPermanent ? "Permanent" : "Temporary",
+                    punishment.Value.Type.ToString());
+
+                if (!response.HasPermission(permission))
+                {
+                    await response.RespondAsync($":x: | Nemáte oprávnění `{permission}`", ephemeral: true);
+                    return;
+                }
+
+                if (!punishment.Value.IsActive)
+                {
+                    await response.RespondAsync($":x: | Trest s ID `{idInput.Value}` již není aktivní", ephemeral: true);
+                    return;
+                }
+
+                var result = PunishmentManager.RevokePunishment(punishment, staffProfile.Value, reasonInput.Value);
+
+                if (result)
+                    await response.RespondAsync($":white_check_mark: | Trest s ID `{idInput.Value}` byl úspěšně zrušen s důvodem: `{reasonInput.Value}`", ephemeral: true);
+                else
+                    await response.RespondAsync($":x: | Nepodařilo se zrušit trest s ID `{idInput.Value}`", ephemeral: true);
+            }
+            catch (Exception ex)
+            {
+                log.Error($"Error while revoking punishment: {ex}");
+                await component.RespondAsync($":x: | Došlo k chybě při zrušení trestu: {ex.Message}", ephemeral: true);
+            }
+        });
+    }
+
+    private void OnEditLevel(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            if (!component.HasPermission("EditLevel"))
+            {
+                await component.RespondAsync(":x: | Nemáte oprávnění k úpravě levelu.", ephemeral: true);
                 return;
             }
 
-            if (!ProfileManager.TryGetProfile(x => x.DiscordId == component.User.Id, out var staffProfile))
+            if (Server.Players.Count < 1)
             {
-                await component.RespondAsync(":x: | Nebyl nalezen profil pro vaše Discord ID", ephemeral: true);
+                await component.RespondAsync(":x: | Na serveru není žádný hráč k upravení levelu", ephemeral: true);
                 return;
             }
 
             var builder = new ModalBuilder();
             var menuBuilder = new SelectMenuBuilder();
 
-            menuBuilder.WithCustomId("WarnPlayerSelect");
-
+            menuBuilder.WithCustomId("LevelEditPlayerSelect");
             menuBuilder.WithMinValues(1);
-            menuBuilder.WithMaxValues(1);
-
             menuBuilder.WithRequired(true);
 
             foreach (var kvp in Server.Players)
@@ -732,80 +1306,137 @@ public class ScpSlMonitor
                 menuBuilder.AddOption(optionBuilder);
             }
 
-            builder.WithCustomId($"ServerWarn_{Alias}");
-            builder.WithTitle("Výběr hráče k varování");
+            builder.WithCustomId($"ServerLevelEdit_{Alias}");
+            builder.WithTitle("Výběr hráče k upravení levelu");
 
-            builder.AddTextInput("Důvod", "WarnReason", placeholder: "Zadejte důvod varování hráče", required: true);
-            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k varování");
+            builder.AddTextInput("Počet", "LevelEditAmount", placeholder: "Zadejte počet XP k odebrání / přidání.", required: true);
+            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k upravení levelu");
 
             async Task Response(SocketModal modal)
             {
-                if (!modal.TryGetComponent("WarnReason", out var reasonInput))
+                if (!modal.TryGetComponent("LevelEditAmount", out var amountInput))
                 {
-                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro důvod varování", ephemeral: true);
+                    await modal.RespondAsync(":x: | Nebyl nalezen text input pro počet XP k upravení", ephemeral: true);
                     return;
                 }
 
-                if (!modal.TryGetComponent("WarnPlayerSelect", out var playerSelect))
+                if (!modal.TryGetComponent("LevelEditPlayerSelect", out var playerSelect))
                 {
                     await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
                     return;
                 }
 
-                var player = Server.Players.FirstOrDefault(x => playerSelect.Values.Contains(x.Key));
+                var players = Server.Players.Where(kvp => playerSelect.Values.Contains(kvp.Key));
 
-                if (player.Key == null)
+                if (!players.Any())
                 {
-                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k varování", ephemeral: true);
+                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k upravení levelu", ephemeral: true);
                     return;
                 }
 
-                if (player.Value.Profile == null)
+                if (!int.TryParse(amountInput.Value, out var xpAmount))
                 {
-                    await modal.RespondAsync(":x: | Vybraný hráč nemá profil, nelze ho varovat", ephemeral: true);
+                    await modal.RespondAsync(":x: | Počet XP k upravení není ve správném formátu", ephemeral: true);
                     return;
                 }
 
-                var reason = reasonInput.Value;
+                var builder = new StringBuilder();
 
-                var confirmButton = new ButtonBuilder()
-                    .WithLabel("Potvrdit")
-                    .WithCustomId($"ConfirmWarn_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Danger)
-                    .WithEmote(Emoji.Parse(":white_check_mark:"));
-
-                var cancelButton = new ButtonBuilder()
-                    .WithLabel("Zrušit")
-                    .WithCustomId($"CancelWarn_{Alias}_{player.Key}")
-                    .WithStyle(ButtonStyle.Secondary)
-                    .WithEmote(Emoji.Parse(":x:"));
-
-                var embed = new EmbedBuilder()
-                    .WithTitle("Potvrzení varování hráče")
-                    .AddField(":man_detective: Hráč", $"{player.Value.Nick} ({player.Key})")
-                    .AddField(":question: Důvod", reason)
-                    .WithColor(Color.Orange);
-
-                var button = await modal.AwaitButtonsAsync(embed, [confirmButton, cancelButton], true, TimeSpan.FromMinutes(2));
-
-                if (button == null)
+                foreach (var player in players)
                 {
-                    await modal.FollowupAsync(":x: | Varování hráče bylo zrušeno (čas vypršel)", ephemeral: true);
+                    if (!LevelManager.TryGetLevels(player.Value.UserId, true, out var levelProperty))
+                    {
+                        builder.AppendLine($"{player.Value.Nick} ({player.Value.UserId}): :x: | Hráč nemá žádný level");
+                        continue;
+                    }
+
+                    var result = LevelManager.ModifyXpSteam(player.Value.UserId, xpAmount);
+                    var level = LevelManager.GetLevelForXp(levelProperty.Experience);
+
+                    builder.AppendLine($"- {player.Value.Nick} ({player.Value.UserId}): {result} (Level: {level} [{levelProperty.Experience} XP])");
+                }
+
+                await modal.FollowupAsync(builder.ToString(), ephemeral: true);
+
+                builder.Clear();
+            }
+
+            await component.RespondMenuAsync(builder, Response);
+        });
+    }
+
+    private void OnResetLevel(SocketMessageComponent component)
+    {
+        Task.Run(async () =>
+        {
+            if (!component.HasPermission("ResetLevel"))
+            {
+                await component.RespondAsync(":x: | Nemáte oprávnění k resetování levelu.", ephemeral: true);
+                return;
+            }
+
+            if (Server.Players.Count < 1)
+            {
+                await component.RespondAsync(":x: | Na serveru není žádný hráč k resetování levelu.", ephemeral: true);
+                return;
+            }
+
+            var builder = new ModalBuilder();
+            var menuBuilder = new SelectMenuBuilder();
+
+            menuBuilder.WithCustomId("ResetLevelPlayerSelect");
+            menuBuilder.WithMinValues(1);
+            menuBuilder.WithRequired(true);
+
+            foreach (var kvp in Server.Players)
+            {
+                var optionBuilder = new SelectMenuOptionBuilder();
+
+                optionBuilder.WithValue(kvp.Key);
+                optionBuilder.WithLabel($"{kvp.Value.Nick} ({kvp.Value.UserId})");
+
+                menuBuilder.AddOption(optionBuilder);
+            }
+
+            builder.WithCustomId($"ServerResetLevel_{Alias}");
+            builder.WithTitle("Výběr hráče k resetování levelu");
+            builder.AddSelectMenu("Výběr hráče", menuBuilder, "Vyberte hráče k resetování levelu");
+
+            async Task Response(SocketModal modal)
+            {
+                if (!modal.TryGetComponent("ResetLevelPlayerSelect", out var playerSelect))
+                {
+                    await modal.RespondAsync(":x: | Nebyl nalezen select menu pro výběr hráče", ephemeral: true);
                     return;
                 }
 
-                if (button.Data.CustomId.StartsWith("CancelWarn"))
+                var players = Server.Players.Where(kvp => playerSelect.Values.Contains(kvp.Key));
+
+                if (!players.Any())
                 {
-                    await button.RespondAsync(":x: | Varování hráče bylo zrušeno", ephemeral: true);
+                    await modal.RespondAsync(":x: | Nebyl vybrán žádný hráč k resetování levelu", ephemeral: true);
                     return;
                 }
 
-                var info = PunishmentManager.IssuePunishment(staffProfile.Value, player.Value.Profile.Value, Punishments.Enums.PunishmentType.Warn, null, "Discord", null, reason);
+                var builder = new StringBuilder();
 
-                if (info != null)
-                    await button.RespondAsync($":white_check_mark: | Hráči `{player.Key}` byl úspěšně udělen varování ze serveru s důvodem: `{reason}` (ID: `{info.Id}`)", ephemeral: true);
-                else
-                    await button.RespondAsync($":x: | Nepodařilo se udělit varování hráči `{player.Key}`", ephemeral: true);
+                foreach (var player in players)
+                {
+                    if (!LevelManager.TryGetLevels(player.Value.UserId, true, out var levelProperty))
+                    {
+                        builder.AppendLine($"{player.Value.Nick} ({player.Value.UserId}): :x: | Hráč nemá žádný level");
+                        continue;
+                    }
+
+                    var result = LevelManager.ResetXp(player.Value.UserId);
+                    var level = LevelManager.GetLevelForXp(levelProperty.Experience);
+
+                    builder.AppendLine($"- {(result ? ":white_check_mark:" : ":x:")} {player.Value.Nick} ({player.Value.UserId}): {result} (Level: {level} [{levelProperty.Experience} XP])");
+                }
+
+                await modal.FollowupAsync(builder.ToString(), ephemeral: true);
+
+                builder.Clear();
             }
 
             await component.RespondMenuAsync(builder, Response);
@@ -887,6 +1518,8 @@ public class ScpSlMonitor
 
                             BuildEmbed(embed);
                             BuildComponents(components);
+
+                            
 
                             var message = await channel.SendMessageAsync(
                                 embed: embed.Build(),
@@ -996,53 +1629,84 @@ public class ScpSlMonitor
 
     internal static void OnButton(SocketMessageComponent component)
     {
-        if (!component.Data.CustomId.TrySplit('_', true, 3, out var segments))
-            return;
-
-        if (segments[0] != "Monitor")
-            return;
-
-        if (!Monitors.TryGetValue(segments[1], out var monitor))
+        try
         {
-            Task.Run(async () => await component.RespondAsync($":x: | Nebyl nalezen monitor s ID `{segments[1]}`"));
-            return;
+            if (!component.Data.CustomId.TrySplit('_', true, 3, out var segments))
+                return;
+
+            if (segments[0] != "Monitor")
+                return;
+
+            if (!Monitors.TryGetValue(segments[1], out var monitor))
+            {
+                Task.Run(async () => await component.RespondAsync($":x: | Nebyl nalezen monitor s ID `{segments[1]}`"));
+                return;
+            }
+
+            if (monitor.Server == null)
+            {
+                Task.Run(async () => await component.RespondAsync($":x: | Monitor `{segments[1]}` není připojen k žádnému serveru"));
+                return;
+            }
+
+            switch (segments[2])
+            {
+                case "Command":
+                    monitor.OnServerCommand(component);
+                    break;
+
+                case "Shutdown":
+                    monitor.OnServerShutdown(component);
+                    break;
+
+                case "Restart":
+                    monitor.OnServerRestart(component);
+                    break;
+
+                case "Kick":
+                    monitor.OnServerKick(component);
+                    break;
+
+                case "Ban":
+                    monitor.OnServerBan(component);
+                    break;
+
+                case "Mute":
+                    monitor.OnServerMute(component);
+                    break;
+
+                case "Warn":
+                    monitor.OnServerWarn(component);
+                    break;
+
+                case "Revoke":
+                    monitor.OnRevokePunishment(component);
+                    break;
+
+                case "Search":
+                    monitor.OnSearchPunishments(component);
+                    break;
+
+                case "RestartRound":
+                    monitor.OnServerRoundRestart(component);
+                    break;
+
+                case "UpdateLocks":
+                    monitor.OnServerUpdateLocks(component);
+                    break;
+
+                case "EditLevel":
+                    monitor.OnEditLevel(component);
+                    break;
+
+                case "ResetLevel":
+                    monitor.OnResetLevel(component);
+                    break;
+            }
         }
-
-        if (monitor.Server == null)
+        catch (Exception ex)
         {
-            Task.Run(async () => await component.RespondAsync($":x: | Monitor `{segments[1]}` není připojen k žádnému serveru"));
-            return;
-        }
-
-        switch (segments[2])
-        {
-            case "Command":
-                monitor.OnServerCommand(component);
-                break;
-
-            case "Shutdown":
-                monitor.OnServerShutdown(component);
-                break;
-
-            case "Restart":
-                monitor.OnServerRestart(component);
-                break;
-
-            case "Kick":
-                monitor.OnServerKick(component);
-                break;
-
-            case "Ban":
-                monitor.OnServerBan(component);
-                break;
-
-            case "Mute":
-                monitor.OnServerMute(component);
-                break;
-
-            case "Warn":
-                monitor.OnServerWarn(component);
-                break;
+            Task.Run(async () => await component.RespondAsync($":x: | Došlo k chybě při zpracování interakce s tlačítkem: {ex.Message}", ephemeral: true));
         }
     }
 

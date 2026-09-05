@@ -49,10 +49,16 @@ public class PrtsClient : Entity
     /// </summary>
     public static PrtsClient? Active { get; private set; }
 
+    private bool syncLobbyLock;
+    private bool syncRoundLock;
+
     [IndexField] private static ushort cmd_CmdSyncTps;
 
     [IndexField] private static ushort cmd_CmdSyncPlayer;
     [IndexField] private static ushort cmd_CmdSyncPlayers;
+
+    [IndexField] private static ushort cmd_CmdSyncLobbyLock;
+    [IndexField] private static ushort cmd_CmdSyncRoundLock;
 
     [IndexField] private static ushort cmd_CmdRemovePlayer;
 
@@ -106,6 +112,30 @@ public class PrtsClient : Entity
         SendRemoteCallback(cmd_CmdSyncTps, writer =>
         {
             writer.WriteInt32(tps);
+        });
+    }
+
+    /// <summary>
+    /// Sends a command to the server to synchronize the lobby lock state.
+    /// </summary>
+    /// <param name="isLocked">A boolean value indicating whether the lobby is locked.</param>
+    public void CallCmdSyncLobbyLock(bool isLocked)
+    {
+        SendRemoteCallback(cmd_CmdSyncLobbyLock, writer =>
+        {
+            writer.WriteBool(isLocked);
+        });
+    }
+
+    /// <summary>
+    /// Sends a command to the server to synchronize the round lock state.
+    /// </summary>
+    /// <param name="isLocked">A boolean value indicating whether the round is locked.</param>
+    public void CallCmdSyncRoundLock(bool isLocked)
+    {
+        SendRemoteCallback(cmd_CmdSyncRoundLock, writer =>
+        {
+            writer.WriteBool(isLocked);
         });
     }
 
@@ -240,6 +270,34 @@ public class PrtsClient : Entity
     }
 
     /// <summary>
+    /// Handles a lobby lock request received from the server, updating the lobby lock state accordingly.
+    /// </summary>
+    /// <param name="reader">The reader instance used to deserialize the incoming lobby lock request data.</param>
+    [ClientRpc]
+    public void RpcSetLobbyLock(ByteReader reader)
+    {
+        var isLocked = reader.ReadBool();
+
+        ApiLog.Info("PRTS", $"Received lobby lock request: &1{isLocked}&r");
+
+        ExRound.IsLobbyLocked = isLocked;
+    }
+
+    /// <summary>
+    /// Handles a round lock request received from the server, updating the round lock state accordingly.
+    /// </summary>
+    /// <param name="reader">The reader instance used to deserialize the incoming round lock request data.</param>
+    [ClientRpc]
+    public void RpcSetRoundLock(ByteReader reader)
+    {
+        var isLocked = reader.ReadBool();
+
+        ApiLog.Info("PRTS", $"Received round lock request: &1{isLocked}&r");
+
+        ExRound.IsRoundLocked = isLocked;
+    }
+
+    /// <summary>
     /// Handles a restart request received from the server, initiating a server restart.
     /// </summary>
     [ClientRpc]
@@ -248,6 +306,18 @@ public class PrtsClient : Entity
         ApiLog.Info("PRTS", "Received restart request!");
 
         Server.Restart();
+    }
+
+    /// <summary>
+    /// Handles a restart round request received from the server, initiating a round restart.
+    /// </summary>
+    /// <param name="_">The reader instance used to deserialize the incoming restart round request data.</param>
+    [ClientRpc]
+    public void RpcRestartRound(ByteReader _)
+    {
+        ApiLog.Info("PRTS", "Received restart round request!");
+
+        Round.Restart();
     }
 
     /// <summary>
@@ -391,6 +461,18 @@ public class PrtsClient : Entity
                 lastTps = tps;
 
                 CallCmdSyncTps(tps);
+            }
+
+            if (syncLobbyLock != ExRound.IsLobbyLocked)
+            {
+                syncLobbyLock = ExRound.IsLobbyLocked;
+                CallCmdSyncLobbyLock(syncLobbyLock);
+            }
+
+            if (syncRoundLock != ExRound.IsRoundLocked)
+            {
+                syncRoundLock = ExRound.IsRoundLocked;
+                CallCmdSyncRoundLock(syncRoundLock);
             }
 
             foreach (var kvp in PlayerToInfo)

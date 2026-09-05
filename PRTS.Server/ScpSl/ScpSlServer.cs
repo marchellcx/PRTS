@@ -46,9 +46,13 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     [IndexField] private static ushort rpc_RpcInvokeCommand;
     [IndexField] private static ushort rpc_RpcRequestIdentity;
 
-    [IndexField] private static ushort rpc_RpcRestart;
-    [IndexField] private static ushort rpc_RpcShutdown;
     [IndexField] private static ushort rpc_RpcKick;
+    [IndexField] private static ushort rpc_RpcShutdown;
+    [IndexField] private static ushort rpc_RpcRestart;
+    [IndexField] private static ushort rpc_RpcRestartRound;
+
+    [IndexField] private static ushort rpc_RpcSetLobbyLock;
+    [IndexField] private static ushort rpc_RpcSetRoundLock;
 
     internal volatile string endpoint;
 
@@ -62,6 +66,9 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     private volatile ProfileModule profileModule;
     private volatile PunishmentModule punishmentModule;
     private volatile PluginManagerModule pluginManagerModule;
+
+    private volatile bool isRoundLocked;
+    private volatile bool isLobbyLocked;
 
     private volatile byte maxPlayers;
 
@@ -127,6 +134,16 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
         get => maxPlayers;
         set => maxPlayers = value;
     }
+
+    /// <summary>
+    /// Indicates whether the current round on the server is locked, preventing players from joining or leaving.
+    /// </summary>
+    public bool IsRoundLocked => isRoundLocked;
+
+    /// <summary>
+    /// Indicates whether the server's lobby is locked, preventing players from joining the lobby.
+    /// </summary>
+    public bool IsLobbyLocked => isLobbyLocked;
 
     /// <summary>
     /// The current ticks per second (TPS) of the server, indicating its performance and responsiveness.
@@ -409,6 +426,32 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     }
 
     /// <summary>
+    /// Sends a remote procedure call (RPC) to request the connected SCP:SL server to restart the current round.
+    /// </summary>
+    public void CallRpcRestartRound()
+    {
+        SendRemoteCallback(rpc_RpcRestartRound, default(byte[]));
+    }
+
+    /// <summary>
+    /// Sends a remote procedure call (RPC) to request the connected SCP:SL server to set the lobby lock status.
+    /// </summary>
+    /// <param name="status">The desired lobby lock status.</param>
+    public void CallRpcSetLobbyLock(bool status)
+    {
+        SendRemoteCallback(rpc_RpcSetLobbyLock, writer => writer.WriteBool(status));
+    }
+
+    /// <summary>
+    /// Sends a remote procedure call (RPC) to request the connected SCP:SL server to set the round lock status.
+    /// </summary>
+    /// <param name="status">The desired round lock status.</param>
+    public void CallRpcSetRoundLock(bool status)
+    {
+        SendRemoteCallback(rpc_RpcSetRoundLock, writer => writer.WriteBool(status));
+    }
+
+    /// <summary>
     /// Sends a remote procedure call (RPC) to request the connected SCP:SL server to shut down.
     /// </summary>
     public void CallRpcShutdown()
@@ -466,6 +509,28 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     public void CmdSyncTps(ByteReader reader)
     {
         tps = reader.ReadInt32();
+    }
+
+    /// <summary>
+    /// Processes the synchronization of the lobby lock status sent from the client. This method reads
+    /// the incoming data to update the local lobby lock status.
+    /// </summary>
+    /// <param name="reader">The reader responsible for deserializing the incoming data stream.</param>
+    [ServerCmd]
+    public void CmdSyncLobbyLock(ByteReader reader)
+    {
+        isLobbyLocked = reader.ReadBool();
+    }
+
+    /// <summary>
+    /// Processes the synchronization of the round lock status sent from the client. This method reads
+    /// the incoming data to update the local round lock status.
+    /// </summary>
+    /// <param name="reader">The reader responsible for deserializing the incoming data stream.</param>
+    [ServerCmd]
+    public void CmdSyncRoundLock(ByteReader reader)
+    {
+        isRoundLocked = reader.ReadBool();
     }
 
     /// <summary>
@@ -575,6 +640,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
             playerInfo.Address = reader.ReadString();
             playerInfo.Country = reader.ReadString();
             playerInfo.Ping = reader.ReadInt32();
+            playerInfo.Role = reader.ReadString();
 
             playerInfo.CustomData.Clear();
 

@@ -12,6 +12,7 @@ using PRTS.Client.Levels.Enums;
 using PRTS.Client.Levels.Objects;
 
 using PRTS.Client.Punishments;
+using PRTS.Client.Levels.Rewards;
 
 namespace PRTS.Client.Levels;
 
@@ -27,6 +28,11 @@ public class LevelModule : PrtsModule
         
         ExPlayerEvents.Left += OnLeft;   
         ExRoundEvents.WaitingForPlayers += OnWaiting;
+
+        KillRewards.Initialize();
+        EscapeRewards.Initialize();
+        WarheadRewards.Initialize();
+        RoundSurvivalReward.Initialize();
     }
 
     /// <summary>
