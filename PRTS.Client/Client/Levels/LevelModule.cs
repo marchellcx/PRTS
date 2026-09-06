@@ -48,7 +48,7 @@ public class LevelModule : PrtsModule
     /// <summary>
     /// Occurs when a player's level information changes.
     /// </summary>
-    public static event Action<ExPlayer, LevelData, LevelData>? PlayerLevelChanged;
+    public static event Action<ExPlayer, LevelData, LevelData, string?>? PlayerLevelChanged;
 
     /// <summary>
     /// Gets or sets the experience multiplier used for calculating experience points in the leveling system.
@@ -153,8 +153,6 @@ public class LevelModule : PrtsModule
     /// </summary>
     public void RefreshPlayerLevels()
     {
-        ApiLog.Debug($"Refreshing player levels for {ExPlayer.Players.Count} players");
-
         CallCmdGetPlayerLevels(ExPlayer.Players
             .Where(p => p?.ReferenceHub != null && !string.IsNullOrEmpty(p.UserId))
             .Select(p => p.UserId), levels =>
@@ -170,14 +168,10 @@ public class LevelModule : PrtsModule
 
                         PlayerLevelReceived?.Invoke(ply, data);
                         PlayerLevels[ply.UserId] = data;
-
-                        ApiLog.Debug($"Refreshed level data for player {ply.UserId} - Level: {data.curLevelNum}, XP: {data.Experience}");
                     }
                     else
                     {
                         PlayerLevels.Remove(ply.UserId);
-
-                        ApiLog.Debug($"No level data found for player {ply.UserId}");
                     }
                 }
             }
@@ -221,8 +215,6 @@ public class LevelModule : PrtsModule
                         MilestoneName = reader.ReadString()
                     };
                 }
-
-                ApiLog.Debug($"Received {array.Length} levels from the server");
 
                 callback(array);
             }
@@ -271,8 +263,6 @@ public class LevelModule : PrtsModule
                 else
                 {
                     callback(null);
-                    
-                    ApiLog.Warn($"No level and experience found for ID &1{userId}&r");
                 }
             }
         }
@@ -327,8 +317,6 @@ public class LevelModule : PrtsModule
                     }
                     else
                     {
-                        ApiLog.Warn($"No level and experience found for ID &1{userId}&r");
-
                         dict[userId] = null;
                     }
                 }
@@ -347,10 +335,11 @@ public class LevelModule : PrtsModule
     /// Sends a command to the server to modify the experience points (XP) of a specified user. The result of the operation is returned via the provided callback.
     /// </summary>
     /// <param name="userId">The unique identifier of the user whose XP is to be modified.</param>
+    /// <param name="reason">The reason for modifying the user's XP.</param>
     /// <param name="xp">The amount of XP to add or subtract. Positive values add XP, while negative values subtract XP.</param>
     /// <param name="callback">A callback function that is invoked with the result of the modification operation. The callback parameter contains the <see cref="LevelModifyResult"/> indicating the outcome of the modification.</param>
     /// <exception cref="ArgumentNullException">Thrown if <paramref name="userId"/> is null or empty.</exception>
-    public void CallCmdModifyXp(string userId, int xp, Action<LevelModifyResult?>? callback)
+    public void CallCmdModifyXp(string userId, string? reason, int xp, Action<LevelModifyResult?>? callback)
     {
         if (string.IsNullOrEmpty(userId))
             throw new ArgumentNullException(nameof(userId));
@@ -363,14 +352,10 @@ public class LevelModule : PrtsModule
             if (reader == null)
             {
                 callback(null);
-                
-                ApiLog.Warn($"Failed to modify XP for ID &1{userId}&r");
             }
             else
             {
                 var result = reader.ReadByte();
-                
-                ApiLog.Debug($"XP modification result for ID &1{userId}&r: &1{result}&r");              
                 
                 callback((LevelModifyResult)result);
             }
@@ -378,7 +363,8 @@ public class LevelModule : PrtsModule
         
         SendRemoteCallback(cmd_CmdModifyXp, writer =>
         {
-            writer.WriteString(userId);   
+            writer.WriteString(userId);
+            writer.WriteString(reason);
             writer.WriteInt32(xp);
         }, Response);
     }
@@ -387,33 +373,28 @@ public class LevelModule : PrtsModule
     /// Sends a command to reset the experience points (XP) of a specified user.
     /// </summary>
     /// <param name="userId">The unique identifier of the user whose XP is to be reset.</param>
+    /// <param name="reason">The reason for resetting the user's XP.</param>
     /// <param name="callback">An action to be invoked with a boolean result indicating whether the reset was successful.</param>
     /// <exception cref="ArgumentNullException">
     /// Thrown if <paramref name="userId"/> is null or empty, or if <paramref name="callback"/> is null.
     /// </exception>
-    public void CallCmdResetXp(string userId, Action<bool>? callback)
+    public void CallCmdResetXp(string userId, string? reason, Action<bool>? callback)
     {
         if (string.IsNullOrEmpty(userId))
             throw new ArgumentNullException(nameof(userId));
 
         if (callback == null)
             throw new ArgumentNullException(nameof(callback));
-        
-        ApiLog.Debug($"Sending XP reset for ID &1{userId}&r");
 
         SendRemoteCallback(cmd_CmdResetXp, writer =>
         {
-            writer.WriteString(userId);       
+            writer.WriteString(userId);
+            writer.WriteString(reason);
         }, reader =>
         {
             var result = reader?.ReadBool() ?? false;
             
-            callback?.Invoke(result);
-
-            if (!result)
-                ApiLog.Warn($"Failed to reset XP for ID &1{userId}&r");
-            else
-                ApiLog.Info($"XP reset for ID &1{userId}&r");           
+            callback?.Invoke(result);      
         });
     }
 
@@ -430,7 +411,7 @@ public class LevelModule : PrtsModule
         var newLevel = reader.ReadInt32();
         var newExperience = reader.ReadInt32();
 
-        ApiLog.Debug($"Received level change notification for user ID &1{userId}&r: Level {newLevel}, XP {newExperience}"); 
+        var reason = reader.ReadString();
 
         if (ExPlayer.TryGetByUserId(userId, out var player))
         {
@@ -445,9 +426,7 @@ public class LevelModule : PrtsModule
                 oldData.CurLevel = Levels.FirstOrDefault(l => l.Level == newLevel);
                 oldData.NextLevel = Levels.FirstOrDefault(l => l.Level == newLevel + 1);
 
-                ApiLog.Debug($"Updated level data for player {player.UserId} - Level: {oldData.curLevelNum}, XP: {oldData.Experience}");
-
-                PlayerLevelChanged?.Invoke(player, oldCopy, oldData);
+                PlayerLevelChanged?.Invoke(player, oldCopy, oldData, reason);
             }
             else
             {
@@ -459,8 +438,6 @@ public class LevelModule : PrtsModule
                     CurLevel = Levels.FirstOrDefault(l => l.Level == newLevel),
                     NextLevel = Levels.FirstOrDefault(l => l.Level == newLevel + 1)
                 };
-
-                ApiLog.Debug($"Received new level data for player {player.UserId} - Level: {newData.curLevelNum}, XP: {newData.Experience}");
 
                 PlayerLevels[userId] = newData;
                 PlayerLevelReceived?.Invoke(player, newData);

@@ -2,9 +2,10 @@ using System.Text;
 using System.Collections.Concurrent;
 
 using Discord;
+using Discord.Net;
 using Discord.WebSocket;
 using Discord.Interactions;
-using Discord.Net;
+
 using Fergun.Interactive;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -13,10 +14,14 @@ using NiveraAPI.Logs;
 using NiveraAPI.Console;
 using NiveraAPI.Utilities;
 using NiveraAPI.Extensions;
+
 using NiveraAPI.IO.Serialization;
+
 using PRTS.Core.Attributes;
 using PRTS.Discord.MessageCache;
+
 using PRTS.Extensions;
+
 using ServiceCollection = NiveraAPI.Services.ServiceCollection;
 
 namespace PRTS.Discord;
@@ -37,12 +42,13 @@ public class DiscordBot : ServiceCollection
 
         ByteSerializer<CachedDiscordMessage>.Deserialize = reader =>
         {
-            var msg = new CachedDiscordMessage();
-            
-            msg.GuildId = reader.ReadUInt64();
-            msg.ChannelId = reader.ReadUInt64();
-            msg.MessageId = reader.ReadUInt64();
-            
+            var msg = new CachedDiscordMessage
+            {
+                GuildId = reader.ReadUInt64(),
+                ChannelId = reader.ReadUInt64(),
+                MessageId = reader.ReadUInt64()
+            };
+
             return msg;
         };
     }
@@ -384,17 +390,8 @@ public class DiscordBot : ServiceCollection
         {
             if (ActivityText == value)
                 return;
-            
-            Task.Run(async () =>
-            {
-                await client.SetCustomStatusAsync(value);
-            }).ContinueWithOnMain(t =>
-            {
-                if (t.IsFaulted)
-                {
-                    Log.Error($"Error while setting activity: {t.Exception?.ToString() ?? "Unknown error"}");
-                }
-            });
+
+            Task.Run(async () => { await client.SetCustomStatusAsync(value); }).LogTaskError(Log);
         }
     }
 
@@ -411,17 +408,8 @@ public class DiscordBot : ServiceCollection
         {
             if (Status == value)
                 return;
-            
-            Task.Run(async () =>
-            {
-                await client.SetStatusAsync(value);
-            }).ContinueWithOnMain(t =>
-            {
-                if (t.IsFaulted)
-                {
-                    Log.Error($"Error while setting status: {t.Exception?.ToString() ?? "Unknown error"}");
-                }
-            });
+
+            Task.Run(async () => { await client.SetStatusAsync(value); }).LogTaskError(Log);
         }
     }
 
@@ -463,18 +451,19 @@ public class DiscordBot : ServiceCollection
             throw new InvalidOperationException("The Discord client is already connected.");
         
         Log.Info("Connecting to Discord ..");
-        Log.Debug("Configuring client ..");
 
-        config = new();
-        config.LargeThreshold = 250;
-        
-        config.AlwaysDownloadUsers = true;
-        config.AlwaysResolveStickers = true;
-        config.AlwaysDownloadDefaultStickers = true;
+        config = new()
+        {
+            LargeThreshold = 250,
 
-        config.LogLevel = LogSeverity.Info;
-        config.GatewayIntents = GatewayIntents.All;
-            
+            AlwaysDownloadUsers = true,
+            AlwaysResolveStickers = true,
+            AlwaysDownloadDefaultStickers = true,
+
+            LogLevel = LogSeverity.Info,
+            GatewayIntents = GatewayIntents.All
+        };
+
         if (LibraryLoader.HasArgument("DiscordLogRawGateway"))
             config.IncludeRawPayloadOnGatewayErrors = true;
 
@@ -490,32 +479,20 @@ public class DiscordBot : ServiceCollection
         
         if (LibraryLoader.HasArgument("DiscordLogLevel", out var logLevelStr)
             && Enum.TryParse<LogSeverity>(logLevelStr, true, out var logLevel))
-            config.LogLevel = logLevel;
-        
-        Log.Debug("Constructing client ..");
+            config.LogLevel = logLevel;  
 
         client = new(config);
         
         interactionService = new(client.Rest);
         interactiveService = new(client, new() { DefaultTimeout = TimeSpan.FromMinutes(5) });
-
-        Log.Debug("Registering events ..");
         
         RegisterEvents();
-        
-        Log.Debug("Starting connection ..");
-        
+
         Task.Run(async () =>
         {
             await client.LoginAsync(TokenType.Bot, token);
             await client.StartAsync();
-        }).ContinueWithOnMain(t =>
-        {
-            if (t.IsFaulted)
-                Log.Error($"Error while connecting: {t.Exception?.Message ?? "Unknown error"}");
-            else
-                Log.Info("Connected to Discord!");
-        });
+        }).LogTaskError(Log);
     }
 
     /// <summary>
@@ -627,20 +604,6 @@ public class DiscordBot : ServiceCollection
                     }
                 }
             }
-            else
-            {
-                if (task.Result != null)
-                {
-                    foreach (var cmd in task.Result)
-                    {
-                        Log.Info($"Registered command &1{cmd.Name}&r");
-                    }
-                }
-                else
-                {
-                    Log.Info($"Registered commands of module &1{typeof(T).Name}&r");
-                }
-            }
         });
     }
 
@@ -665,7 +628,7 @@ public class DiscordBot : ServiceCollection
         Task.Run(async () =>
         {
             ModuleInfo module = null!;
-            
+
             try
             {
                 module = interactionService.GetModuleInfo<T>();
@@ -677,15 +640,9 @@ public class DiscordBot : ServiceCollection
 
             if (module == null)
                 return;
-            
+
             await interactionService.RemoveModuleAsync<T>();
-        }).ContinueWithOnMain(task =>
-        {
-            if (task.IsFaulted)
-                Log.Error($"Error while unregistering commands:\n{task.Exception}");
-            else
-                Log.Info($"Unregistered commands of module &1{typeof(T).Name}&r");
-        });
+        }).LogTaskError(Log);
     }
 
     /// <summary>

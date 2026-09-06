@@ -52,7 +52,6 @@ public static class DbManager
     public static void Start()
     {
         log = LogManager.GetSource("Database", "Manager");
-        log.Info("Starting ..");
         
         RegisterSerializers();
         
@@ -67,10 +66,9 @@ public static class DbManager
                 Directory.CreateDirectory(path);
 
             FindStorages();
-            
-            storage = new(path);
-            storage.DefaultSerializer = new JsonSerializer();
-            
+
+            storage = new(path) { DefaultSerializer = new JsonSerializer() };
+
             if (LibraryLoader.HasArgument("DatabaseDebug"))
                 Storage.DebugLogs = true;
 
@@ -115,8 +113,6 @@ public static class DbManager
                         serializers.TryAdd(kvp.Value.Serializer, serializer);
                     }
                     
-                    log.Debug($"Assigned serializer &1{serializer.GetType()}&r to &1{kvp.Key.Name}&r");
-
                     storage.DirectorySerializers.TryAdd(kvp.Value.Name, serializer);
                 }
             }
@@ -143,8 +139,6 @@ public static class DbManager
                 if (dir != null)
                 {
                     kvp.Key.SetValue(null, dir);
-                    
-                    log.Debug($"Assigned storage &1{kvp.Value.Name}&r to &1{kvp.Key.Name}&r");
                 }
                 else
                 {
@@ -194,8 +188,6 @@ public static class DbManager
                     dbStorageAttribute.Name = field.Name;
                 
                 storages.TryAdd(field, dbStorageAttribute);
-                
-                log.Debug($"Found storage field &1{field.Name}&r: &3{dbStorageAttribute.Name}&r");
             }
         }
     }
@@ -230,13 +222,14 @@ public static class DbManager
 
         ByteSerializer<StaffRole>.Deserialize = reader =>
         {
-            var role = new StaffRole();
-            
-            role.Id = reader.ReadString(); 
-            role.IsAdministrator = reader.ReadBool();
-            role.RoleIds = reader.ReadArray<ulong>();
-            role.Permissions = reader.ReadArray<string>();
-            
+            var role = new StaffRole
+            {
+                Id = reader.ReadString(),
+                IsAdministrator = reader.ReadBool(),
+                RoleIds = reader.ReadArray<ulong>(),
+                Permissions = reader.ReadArray<string>()
+            };
+
             return role;
         };
         
@@ -251,13 +244,14 @@ public static class DbManager
 
         ByteSerializer<PluginInfo>.Deserialize = reader =>
         {
-            var info = new PluginInfo();
-
-            info.Name = reader.ReadString();
-            info.File = reader.ReadString();
-            info.Author = reader.ReadString();
-            info.Version = reader.ReadString();
-            info.Description = reader.ReadString();
+            var info = new PluginInfo
+            {
+                Name = reader.ReadString(),
+                File = reader.ReadString(),
+                Author = reader.ReadString(),
+                Version = reader.ReadString(),
+                Description = reader.ReadString()
+            };
 
             return info;
         };

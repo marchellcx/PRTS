@@ -17,6 +17,8 @@ using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Levels;
 
 using Discord.WebSocket;
+using PRTS.Levels.Properties;
+using System.Text;
 
 namespace PRTS.Levels;
 
@@ -62,14 +64,16 @@ public static class LevelManager
     public static Dictionary<int, ulong> Roles { get; set; } = new();
     
     private static volatile LogSink log = LogManager.GetSource("Core", "LevelManager");
-    
+
     /// <summary>
-    /// The name of the property used to represent the player's level within a user's profile.
-    /// This constant is utilized for accessing and modifying player level-related data,
-    /// such as retrieving the current level, updating experience points, and determining
-    /// level progression or regression.
+    /// Gets the name of the property used to represent the player's level data within a user's profile.
     /// </summary>
-    public const string PropertyName = "PlayerLevel";
+    public const string LogsPropertyName = "PlayerLevelLogs";
+
+    /// <summary>
+    /// Gets the name of the property used to represent the player's level data within a user's profile.
+    /// </summary>
+    public const string DataPropertyName = "PlayerLevel";
     
     /// <summary>
     /// Defines an array representing the cumulative experience points (XP) required
@@ -82,29 +86,24 @@ public static class LevelManager
     public static volatile LevelInfo[] Levels = [];
 
     /// <summary>
-    /// Resets the experience points (XP) and level of the specified user to their initial values.
+    /// Resets the experience points (XP) and level of the user associated with the specified Steam user ID to their initial values.
     /// </summary>
-    /// <param name="userId">
-    /// The unique identifier of the user whose XP and level are to be reset.
-    /// </param>
-    /// <param name="reasonId">
-    /// The identifier specifying the reason or source of the reset operation.
-    /// </param>
-    /// <param name="reasonMessage">
-    /// A descriptive message explaining the reason for resetting the XP and level.
-    /// </param>
-    /// <returns>
-    /// A boolean value indicating whether the reset operation was successfully performed.
-    /// Returns <c>false</c> if the user's profile is not found, and <c>true</c> otherwise.
-    /// </returns>
-    public static bool ResetXp(string userId)
+    /// <param name="userId">The Steam user ID of the user whose XP and level are to be reset.</param>
+    /// <param name="reason">The reason for resetting the XP and level.</param>
+    /// <returns>True if the reset operation was successful; otherwise, false.</returns>
+    public static bool ResetXp(string userId, string? reason)
     {
         if (!ProfileManager.TryGetProfileByUserId(userId, out var profile))
             return false;
 
-        if (!profile.Value.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
+        if (!profile.Value.TryGetProperty<LevelDataProperty>(DataPropertyName, out var levelProperty))
             return true;
-        
+
+        var experience = levelProperty.Experience;
+
+        if (profile.Value.TryGetProperty<LevelLogsProperty>(LogsPropertyName, out var logsProperty))
+            logsProperty.AddLog(experience, -experience, reason);
+
         levelProperty.Experience = 0;
 
         var level = GetLevelForXp(0);
@@ -114,7 +113,7 @@ public static class LevelManager
 
         ScpSlManager.BroadcastEntities<LevelModule>(module =>
         { 
-            module.CallRpcNotifyChange(profile.Value.UserId, level.Level, levelProperty.Experience);
+            module.CallRpcNotifyChange(profile.Value.UserId, reason, level.Level, levelProperty.Experience);
         });
         
         log.Info($"Reset XP and level of &1{userId}&r to their initial values!");
@@ -126,13 +125,18 @@ public static class LevelManager
     /// </summary>
     /// <param name="discordId">The Discord ID of the user whose XP and level are to be reset.</param>
     /// <returns>A boolean value indicating whether the reset operation was successfully performed. Returns <c>false</c> if the user's profile is not found, and <c>true</c> otherwise.</returns>
-    public static bool ResetXp(ulong discordId)
+    public static bool ResetXp(ulong discordId, string? reason)
     {
         if (!ProfileManager.TryGetProfile(x => x.DiscordId == discordId, out var profile))
             return false;
 
-        if (!profile.Value.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
+        if (!profile.Value.TryGetProperty<LevelDataProperty>(DataPropertyName, out var levelProperty))
             return true;
+
+        var experience = levelProperty.Experience;
+
+        if (profile.Value.TryGetProperty<LevelLogsProperty>(LogsPropertyName, out var logsProperty))
+            logsProperty.AddLog(experience, -experience, reason);
 
         levelProperty.Experience = 0;
 
@@ -145,7 +149,7 @@ public static class LevelManager
         {
             ScpSlManager.BroadcastEntities<LevelModule>(module =>
             {
-                module.CallRpcNotifyChange(profile.Value.UserId, level.Level, levelProperty.Experience);
+                module.CallRpcNotifyChange(profile.Value.UserId, reason, level.Level, levelProperty.Experience);
             });
         }
 
@@ -157,41 +161,30 @@ public static class LevelManager
     /// Modifies the experience points (XP) of a user identified by their Discord ID and handles associated level changes.
     /// </summary>
     /// <param name="discordId">The Discord ID of the user whose experience points are to be modified.</param>
+    /// <param name="reason">The reason for modifying the experience points. This can be null if no specific reason is provided.</param>
     /// <param name="xp">The amount of XP to add or remove. Positive values add XP, while negative values subtract XP.</param>
     /// <returns>An instance of <c>LevelModifyResult</c> indicating the result of the operation.</returns>
-    public static LevelModifyResult ModifyXpDiscord(ulong discordId, int xp)
+    public static LevelModifyResult ModifyXpDiscord(ulong discordId, string? reason, int xp)
     {
         if (!ProfileManager.TryGetProfile(x => x.DiscordId == discordId, out var profile))
             return LevelModifyResult.ProfileNotFound;
 
-        return ModifyProfileXp(profile, xp);
+        return ModifyProfileXp(profile, reason, xp);
     }
 
     /// <summary>
-    /// Modifies the experience points (XP) of the specified user and handles associated level changes.
+    /// Modifies the experience points (XP) of a user identified by their Steam user ID and handles associated level changes.
     /// </summary>
-    /// <param name="userId">
-    /// The unique identifier of the user whose experience points are to be modified.
-    /// </param>
-    /// <param name="xp">
-    /// The amount of XP to add or remove. Positive values add XP, while negative values subtract XP.
-    /// </param>
-    /// <param name="reasonId">
-    /// The identifier for the reason or source of the XP modification.
-    /// </param>
-    /// <param name="reasonMessage">
-    /// A descriptive message explaining the reason for the XP modification.
-    /// </param>
-    /// <returns>
-    /// An instance of <c>LevelModifyResult</c> indicating the result of the operation, such as whether the profile was found,
-    /// the operation was successful, or if a level change occurred.
-    /// </returns>
-    public static LevelModifyResult ModifyXpSteam(string userId, int xp)
+    /// <param name="userId">The Steam user ID of the user whose experience points are to be modified.</param>
+    /// <param name="reason">The reason for modifying the experience points. This can be null if no specific reason is provided.</param>
+    /// <param name="xp">The amount of XP to add or remove. Positive values add XP, while negative values subtract XP.</param>
+    /// <returns>An instance of <c>LevelModifyResult</c> indicating the result of the operation.</returns>
+    public static LevelModifyResult ModifyXpSteam(string userId, string? reason, int xp)
     {
         if (!ProfileManager.TryGetProfileByUserId(userId, out var profile))
             return LevelModifyResult.ProfileNotFound;
 
-        return ModifyProfileXp(profile, xp);
+        return ModifyProfileXp(profile, reason, xp);
     }
     
     /// <summary>
@@ -210,7 +203,7 @@ public static class LevelManager
     /// <returns>
     /// <c>true</c> if the level property was successfully retrieved; otherwise, <c>false</c>.
     /// </returns>
-    public static bool TryGetLevels(string userId, bool addProperty, out LevelProperty levelProperty)
+    public static bool TryGetLevels(string userId, bool addProperty, out LevelDataProperty levelProperty)
     {
         levelProperty = null!;
 
@@ -219,7 +212,7 @@ public static class LevelManager
 
         if (addProperty)
         {
-            levelProperty = profile.GetOrAddProperty<LevelProperty>(PropertyName);
+            levelProperty = profile.GetOrAddProperty<LevelDataProperty>(DataPropertyName);
 
             if (profile.Value.DiscordId != 0)
                 UpdateDiscordRoles(profile.Value, GetLevelForXp(levelProperty.Experience).Level);
@@ -227,7 +220,7 @@ public static class LevelManager
             return true;
         }
 
-        return profile.Value.TryGetProperty(PropertyName, out levelProperty);
+        return profile.Value.TryGetProperty(DataPropertyName, out levelProperty);
     }
 
     /// <summary>
@@ -237,7 +230,7 @@ public static class LevelManager
     /// <param name="addProperty">If <c>true</c>, the method will create a new level property if one does not exist.</param>
     /// <param name="levelProperty">When this method returns, contains the level property associated with the specified Discord ID, if found; otherwise, contains null. This parameter is passed uninitialized.</param>
     /// <returns><c>true</c> if the level property was successfully retrieved; otherwise, <c>false</c>.</returns>
-    public static bool TryGetLevels(ulong discordId, bool addProperty, out LevelProperty levelProperty)
+    public static bool TryGetLevels(ulong discordId, bool addProperty, out LevelDataProperty levelProperty)
     {
         levelProperty = null!;
 
@@ -246,7 +239,7 @@ public static class LevelManager
 
         if (addProperty)
         {
-            levelProperty = profile.GetOrAddProperty<LevelProperty>(PropertyName);
+            levelProperty = profile.GetOrAddProperty<LevelDataProperty>(DataPropertyName);
 
             if (profile.Value.DiscordId != 0)
                 UpdateDiscordRoles(profile.Value, GetLevelForXp(levelProperty.Experience).Level);
@@ -254,7 +247,7 @@ public static class LevelManager
             return true;
         }
 
-        return profile.Value.TryGetProperty(PropertyName, out levelProperty);
+        return profile.Value.TryGetProperty(DataPropertyName, out levelProperty);
     }
 
     /// <summary>
@@ -293,35 +286,38 @@ public static class LevelManager
     /// <param name="profile">The user's profile to modify.</param>
     /// <param name="xp">The amount of experience points to add or subtract.</param>
     /// <returns>The result of the level modification.</returns>
-    public static LevelModifyResult ModifyProfileXp(StorageValue<ProfileInfo> profile, int xp)
+    public static LevelModifyResult ModifyProfileXp(StorageValue<ProfileInfo> profile, string? reason, int xp)
     {
         if (xp != 0)
         {
-            var levels = profile.GetOrAddProperty<LevelProperty>(PropertyName);
-            var experience = Math.Max(0, levels.Experience + xp);
+            var logs = profile.GetOrAddProperty<LevelLogsProperty>(LogsPropertyName);
+            var levels = profile.GetOrAddProperty<LevelDataProperty>(DataPropertyName);
 
+            var curExperience = levels.Experience;
             var curLevel = GetLevelForXp(levels.Experience)!;
-            var newLevel = GetLevelForXp(experience)!;
 
-            levels.Experience = experience;
+            var newExperience = Math.Max(0, levels.Experience + xp);
+            var newLevel = GetLevelForXp(newExperience)!;
+
+            logs.AddLog(curExperience, xp, reason);
+
+            levels.Experience = newExperience;
 
             ScpSlManager.BroadcastEntities<LevelModule>(module =>
             {
-                module.CallRpcNotifyChange(profile.Value.UserId, newLevel.Level, levels.Experience);
+                module.CallRpcNotifyChange(profile.Value.UserId, reason, newLevel.Level, levels.Experience);
             });
 
             if (curLevel.Level != newLevel.Level)
             {
-                log.Info($"Player &1{profile.Value.UserId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP and changed level from &1{curLevel.Level}&r to &1{newLevel.Level}&r!");
-
                 UpdateDiscordRoles(profile.Value, newLevel.Level);
+
                 return newLevel.Level > curLevel.Level
                     ? LevelModifyResult.LevelUp
                     : LevelModifyResult.LevelDown;
             }
             else
             {
-                log.Info($"Player &1{profile.Value.UserId}&r has {(xp > 0 ? "&2gained&r" : "&1lost&r")} &1{xp}&r XP but did not change level (still at &1{curLevel.Level}&r).");
                 return LevelModifyResult.Ok;
             }
         }
@@ -343,13 +339,8 @@ public static class LevelManager
         if (profile.DiscordId == 0)
             return;
 
-        log.Info($"Updating Discord roles for user &1{profile.DiscordId}&r based on their current level."); 
-
         if (Roles.Count < 1)
-        {
-            log.Debug($"No roles are configured for level progression, so no role updates will be performed for user &1{profile.DiscordId}&r.");
             return;
-        }
 
         if (MainBotInstance.Instance?.Client == null || MainBotInstance.Instance.PrimaryGuild == null)
         {
@@ -366,10 +357,7 @@ public static class LevelManager
         var user = MainBotInstance.Instance.PrimaryGuild.GetUser(profile.DiscordId);
 
         if (user == null)
-        {
-            log.Warn($"User &1{profile.DiscordId}&r is not a member of the primary guild, so role updates cannot be performed.");
             return;
-        }
 
         SocketRole? roleToAdd = null;
 
@@ -395,7 +383,7 @@ public static class LevelManager
 
     private static void AppendLevel(ProfileInfo profile, Func<PageBuilder> factory, List<IPageBuilder> pages)
     {
-        if (profile.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
+        if (profile.TryGetProperty<LevelDataProperty>(DataPropertyName, out var levelProperty))
         {
             var builder = factory();
 
@@ -421,6 +409,35 @@ public static class LevelManager
                 builder.AddField(":bar_chart: Level", $"**{level.Level}** *(MAX)*");
                 builder.AddField(":books: XP", $"**{levelProperty.Experience}** XP *(MAX)*");
             }
+
+            if (profile.TryGetProperty<LevelLogsProperty>(LogsPropertyName, out var logsProperty) && logsProperty.Logs.Count > 0)
+            {
+                var logBuilder = new StringBuilder();
+                var fieldBuilder = new StringBuilder();
+
+                foreach (var log in logsProperty.Logs.OrderByDescending(l => l.UtcTime))
+                {
+                    var change = log.Change > 0 ? $"+{log.Change}" : $"-{log.Change}";
+                    var reason = string.IsNullOrEmpty(log.Reason) ? "No reason provided" : log.Reason;
+
+                    logBuilder.AppendLine($"- {change} XP - {reason}");
+
+                    if (fieldBuilder.Length + logBuilder.Length <= 1024)
+                    {
+                        fieldBuilder.Append(logBuilder);
+
+                        logBuilder.Clear();
+                    }
+                    else
+                    {
+                        builder.AddField(":scroll: Historie", fieldBuilder.ToString());
+                        break;
+                    }
+                }
+
+                logBuilder.Clear();
+                fieldBuilder.Clear();
+            }
             
             pages.Add(builder);
         }
@@ -436,7 +453,7 @@ public static class LevelManager
             if (storageProfile.Value.DiscordId == 0)
                 continue;
 
-            if (!storageProfile.Value.TryGetProperty<LevelProperty>(PropertyName, out var levelProperty))
+            if (!storageProfile.Value.TryGetProperty<LevelDataProperty>(DataPropertyName, out var levelProperty))
                 continue;
 
             var level = GetLevelForXp(levelProperty.Experience);
@@ -448,17 +465,11 @@ public static class LevelManager
     [Init]
     private static void Initialize()
     {
-        ProfileManager.Properties.Add(PropertyName, typeof(LevelProperty));
+        ProfileManager.Properties.Add(DataPropertyName, typeof(LevelDataProperty));
+        ProfileManager.Properties.Add(LogsPropertyName, typeof(LevelLogsProperty));
 
-        ProfileManager.EnsureProperty(PropertyName, () =>
-        {
-            var property = new LevelProperty
-            {
-                Experience = 0
-            };
-
-            return property;
-        });
+        ProfileManager.EnsureProperty(DataPropertyName, () => new LevelDataProperty());
+        ProfileManager.EnsureProperty(LogsPropertyName, () => new LevelLogsProperty());
 
         Levels = new LevelInfo[LevelCap];
 

@@ -56,7 +56,7 @@ public class LevelCommands : CommandBase, IServerSideCommand
 
         Ok($"Požadavek odeslán serveru. Hráč {userId} bude resetován.");
 
-        LevelModule.Singleton.CallCmdResetXp(userId, result =>
+        LevelModule.Singleton.CallCmdResetXp(userId, $"Resetováno uživatelem {Sender.Nickname}", result =>
         {
             if (player?.ReferenceHub != null)
             {
@@ -137,7 +137,7 @@ public class LevelCommands : CommandBase, IServerSideCommand
 
         var player = Sender;
         
-        LevelModule.Singleton.CallCmdModifyXp(userId, xp, result =>
+        LevelModule.Singleton.CallCmdModifyXp(userId, $"Upraveno uživatelem {Sender.Nickname}", xp, result =>
         {
             if (player?.ReferenceHub != null)
             {

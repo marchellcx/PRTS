@@ -37,7 +37,7 @@ public static class RoundSurvivalReward
         var eligiblePlayers = ExPlayer.Players.Where(IsEligible);
 
         foreach (var player in eligiblePlayers)
-            player.AddXp(RewardAmount);
+            player.AddXp(RewardAmount, $"Přežití do konce kola");
     }
 
     private static void OnRoundRestart()

@@ -129,7 +129,7 @@ public static class ScpSlLevelRewards
                             {
                                 totalSessions.ForEach(s => s.Rewards.Add(rewardKey));
 
-                                LevelManager.ModifyProfileXp(profile, experience);
+                                LevelManager.ModifyProfileXp(profile, rewardKey, experience);
 
                                 profile.IsDirty = true;
 
@@ -155,7 +155,7 @@ public static class ScpSlLevelRewards
 
                         if (RewardsExperience.TryGetValue(kvp.Value, out var experience))
                         {
-                            LevelManager.ModifyProfileXp(profile, experience);
+                            LevelManager.ModifyProfileXp(profile, kvp.Value, experience);
 
                             profile.Value.CustomData[$"SlRewards_{kvp.Key}"] = "true";
                             profile.IsDirty = true;

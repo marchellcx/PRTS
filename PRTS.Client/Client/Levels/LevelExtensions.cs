@@ -16,10 +16,11 @@ public static class LevelExtensions
     /// </summary>
     /// <param name="player">The player to whom the experience points will be added.</param>
     /// <param name="xp">The amount of experience points to add.</param>
+    /// <param name="reason">An optional reason for adding the experience points.</param>
     /// <returns>True if the experience points were successfully added; otherwise, false.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the specified player is null or their reference hub is unavailable.</exception>
     /// <exception cref="ArgumentException">Thrown when the amount of experience points to add is less than one.</exception>
-    public static bool AddXp(this ExPlayer player, int xp) 
+    public static bool AddXp(this ExPlayer player, int xp, string? reason = null) 
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
@@ -30,7 +31,7 @@ public static class LevelExtensions
         if (LevelModule.Singleton == null)
             return false;
 
-        LevelModule.Singleton.CallCmdModifyXp(player.UserId, xp, null);
+        LevelModule.Singleton.CallCmdModifyXp(player.UserId, reason, xp, null);
         return true;
     }
 
@@ -39,10 +40,11 @@ public static class LevelExtensions
     /// </summary>
     /// <param name="player">The player from whom the experience points will be removed.</param>
     /// <param name="xp">The amount of experience points to remove.</param>
+    /// <param name="reason">An optional reason for removing the experience points.</param>
     /// <returns>True if the experience points were successfully removed; otherwise, false.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the specified player is null or their reference hub is unavailable.</exception>
     /// <exception cref="ArgumentException">Thrown when the amount of experience points to remove is less than one.</exception>
-    public static bool RemoveXp(this ExPlayer player, int xp)
+    public static bool RemoveXp(this ExPlayer player, int xp, string? reason = null)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
@@ -53,7 +55,7 @@ public static class LevelExtensions
         if (LevelModule.Singleton == null)
             return false;
 
-        LevelModule.Singleton.CallCmdModifyXp(player.UserId, -xp, null);
+        LevelModule.Singleton.CallCmdModifyXp(player.UserId, reason, -xp, null);
         return true;
     }
 
@@ -187,10 +189,11 @@ public static class LevelExtensions
     /// </summary>
     /// <param name="player">The player whose experience points are being modified.</param>
     /// <param name="xp">The amount of experience points to add or subtract. Positive values increase XP, while negative values decrease XP.</param>
+    /// <param name="reason">An optional reason for the XP modification.</param>
     /// <param name="callback">An optional callback action to be invoked with the result of the XP modification.</param>
     /// <returns>True if the XP modification request was successfully sent to the server; otherwise, false.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the player is null or their reference hub is unavailable.</exception>
-    public static bool ModifyXp(this ExPlayer player, int xp, Action<LevelModifyResult?>? callback = null)
+    public static bool ModifyXp(this ExPlayer player, int xp, string? reason = null, Action<LevelModifyResult?>? callback = null)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
@@ -200,7 +203,7 @@ public static class LevelExtensions
 
         xp *= LevelModule.ExperienceMultiplier;
 
-        LevelModule.Singleton.CallCmdModifyXp(player.UserId, xp, callback);
+        LevelModule.Singleton.CallCmdModifyXp(player.UserId, reason, xp, callback);
         return true;
     }
 
@@ -208,10 +211,11 @@ public static class LevelExtensions
     /// Resets the experience points (XP) of the specified player to zero.
     /// </summary>
     /// <param name="player">The player whose experience points are to be reset.</param>
+    /// <param name="reason">An optional reason for resetting the experience points.</param>
     /// <param name="callback">An optional callback action to be invoked with the result of the reset operation.</param>
     /// <returns>True if the reset request was successfully sent to the server; otherwise, false.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the player is null or their reference hub is unavailable.</exception>
-    public static bool ResetXp(this ExPlayer player, Action<bool>? callback = null)
+    public static bool ResetXp(this ExPlayer player, string? reason = null, Action<bool>? callback = null)
     {
         if (player?.ReferenceHub == null)
             throw new InvalidOperationException("Player is null!");
@@ -219,7 +223,7 @@ public static class LevelExtensions
         if (LevelModule.Singleton == null)
             return false;
 
-        LevelModule.Singleton.CallCmdResetXp(player.UserId, callback);
+        LevelModule.Singleton.CallCmdResetXp(player.UserId, reason, callback);
         return true;
     }
 

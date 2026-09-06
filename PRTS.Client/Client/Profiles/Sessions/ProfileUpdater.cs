@@ -73,14 +73,10 @@ public class ProfileUpdater
     public void Stop()
     {
         Timing.KillCoroutines(updateSessionHandle);      
-        
-        ApiLog.Debug($"Session update for user {UserId} and session {Id} stopped (coroutine killed).");       
     }
 
     private IEnumerator<float> UpdateSession()
     {
-        ApiLog.Debug($"Starting session update for user {UserId} and session {Id}...");
-        
         while (Player?.ReferenceHub != null
                && Module != null
                && !Module.IsDestroyed)
@@ -96,7 +92,5 @@ public class ProfileUpdater
                 ApiLog.Error(ex);                
             }
         }
-        
-        ApiLog.Debug($"Session update for user {UserId} and session {Id} stopped (loop exit).");       
     }
 }

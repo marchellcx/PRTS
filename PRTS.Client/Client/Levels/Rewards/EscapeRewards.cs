@@ -44,9 +44,9 @@ public static class EscapeRewards
         var scpItems = player.Inventory.ItemTypes.Count(EscapedWithScpItemList.Contains);
 
         if (scpItems > 0)
-            player.AddXp(EscapedWithScpItemReward * scpItems);
+            player.AddXp(EscapedWithScpItemReward * scpItems, $"Útěk s SCP předměty ({scpItems})");
         else
-            player.AddXp(EscapedReward);
+            player.AddXp(EscapedReward, "Útěk");
     }
 
     internal static void Initialize()

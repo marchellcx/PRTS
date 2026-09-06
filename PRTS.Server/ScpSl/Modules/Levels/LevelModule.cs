@@ -19,12 +19,13 @@ public class LevelModule : ScpSlModule
     /// <param name="userId">The unique identifier of the user whose level and experience points were changed.</param>
     /// <param name="newLevel">The updated level of the user.</param>
     /// <param name="newExperience">The updated experience points of the user.</param>
-    public void CallRpcNotifyChange(string userId, int newLevel, int newExperience)
+    public void CallRpcNotifyChange(string userId, string? reason, int newLevel, int newExperience)
     {
         SendRemoteCallback(rpc_RpcNotifyChange, writer =>
         {
             writer.WriteString(userId);         
-            
+            writer.WriteString(reason);
+
             writer.WriteInt32(newLevel);
             writer.WriteInt32(newExperience);           
         });
@@ -39,8 +40,10 @@ public class LevelModule : ScpSlModule
     [ServerCmd(true)]
     public void CmdResetXp(ByteReader reader, ByteWriter writer)
     {
-        var userId = reader.ReadString();   
-        var result = LevelManager.ResetXp(userId);       
+        var userId = reader.ReadString();
+        var reason = reader.ReadString();
+
+        var result = LevelManager.ResetXp(userId, reason);       
         
         writer.WriteBool(result);
     }
@@ -53,10 +56,11 @@ public class LevelModule : ScpSlModule
     [ServerCmd(true)]
     public void CmdModifyXp(ByteReader reader, ByteWriter writer)
     {
-        var userId = reader.ReadString();   
+        var userId = reader.ReadString();
+        var reason = reader.ReadString();
         var xp = reader.ReadInt32();
 
-        var result = LevelManager.ModifyXpSteam(userId, xp);
+        var result = LevelManager.ModifyXpSteam(userId, reason, xp);
         
         writer.WriteByte((byte)result);
     }

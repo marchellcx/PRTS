@@ -37,14 +37,15 @@ public class PluginManagerModule : PrtsModule
         
         foreach (var plugin in PluginLoader.EnabledPlugins)
         {
-            var info = new PluginInfo();
+            var info = new PluginInfo
+            {
+                Name = plugin.Name,
+                File = plugin.FilePath,
+                Author = plugin.Author,
+                Version = plugin.Version.ToString(),
+                Description = plugin.Description
+            };
 
-            info.Name = plugin.Name;
-            info.File = plugin.FilePath;
-            info.Author = plugin.Author;
-            info.Version = plugin.Version.ToString();
-            info.Description = plugin.Description;
-            
             list.Add(info);
         }
         

@@ -99,6 +99,89 @@ public static class Utils
     }
 
     /// <summary>
+    /// Logs any exceptions that occur during the execution of a Task to the provided logging sink. If the task is faulted, the exception will be logged along with the name of the calling method.
+    /// </summary>
+    /// <param name="log">The logging sink to which errors will be logged.</param>
+    /// <param name="task">The task whose errors are to be logged.</param>
+    /// <exception cref="ArgumentNullException">Thrown if the log or task parameters are null.</exception>
+    public static void LogTaskError(this Task task, LogSink log)
+    {
+        if (log == null)
+            throw new ArgumentNullException(nameof(log));
+
+        if (task == null)
+            throw new ArgumentNullException(nameof(task));
+
+        var caller = ReflectionHelper.GetCallerMethod(1, false);
+        var callerName = string.Empty;
+
+        if (caller != null)
+        {
+            if (caller.DeclaringType != null)
+                callerName = $"{caller.DeclaringType.FullName}.{caller.Name}";
+            else
+                callerName = caller.Name;
+        }
+
+        task.ContinueWithOnMain(t =>
+        {
+            if (t.IsFaulted)
+            {
+                if (t.Exception != null)
+                {
+                    log.Error(callerName, t.Exception);
+                }
+                else
+                {
+                    log.Error(callerName, "Task faulted but no exception was provided.");
+                }
+            }
+        });
+    }
+
+    /// <summary>
+    /// Logs any exceptions that occur during the execution of a Task<T> to the provided logging sink. If the task is faulted, the exception will be logged along with the name of the calling method.
+    /// </summary>
+    /// <typeparam name="T">The type of the result produced by the task.</typeparam>
+    /// <param name="log">The logging sink to which errors will be logged.</param>
+    /// <param name="task">The task whose errors are to be logged.</param>
+    /// <exception cref="ArgumentNullException">Thrown if the log or task parameters are null.</exception>
+    public static void LogTaskError<T>(this Task<T> task, LogSink log)
+    {
+        if (log == null)
+            throw new ArgumentNullException(nameof(log));
+
+        if (task == null)
+            throw new ArgumentNullException(nameof(task));
+
+        var caller = ReflectionHelper.GetCallerMethod(1, false);
+        var callerName = string.Empty;
+
+        if (caller != null)
+        {
+            if (caller.DeclaringType != null)
+                callerName = $"{caller.DeclaringType.FullName}.{caller.Name}";
+            else
+                callerName = caller.Name;
+        }
+
+        task.ContinueWithOnMain(t =>
+        {
+            if (t.IsFaulted)
+            {
+                if (t.Exception != null)
+                {
+                    log.Error(callerName, t.Exception);
+                }
+                else
+                {
+                    log.Error(callerName, "Task faulted but no exception was provided.");
+                }
+            }
+        });
+    }
+
+    /// <summary>
     /// Logs an informational message to the logging sink.
     /// </summary>
     /// <param name="source">The source of the log message, typically representing the module or component emitting the log.</param>

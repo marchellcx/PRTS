@@ -2,9 +2,10 @@ using Discord;
 using Discord.Rest;
 
 using NiveraAPI.IO.Storage;
-
+using PRTS.Core.Attributes;
 using PRTS.Database.Attributes;
 using PRTS.Database.Serializers;
+using PRTS.Main;
 
 namespace PRTS.Discord.MessageCache;
 
@@ -63,7 +64,7 @@ public static class CachedDiscordMessageStorage
         return Messages.TryGetValue(messageId, out cachedDiscordMessage);
     }
 
-    private static void StorageInit_Messages()
+    private static void OnReady()
     {
         foreach (var kvp in Messages.Values)
         {
@@ -72,5 +73,11 @@ public static class CachedDiscordMessageStorage
 
             castValue.Value.TryResolve();
         }
+    }
+
+    [Init]
+    private static void Initialize()
+    {
+        MainBotInstance.Ready += OnReady;
     }
 }

@@ -36,7 +36,7 @@ public static class WarheadRewards
 
         wasWarheadActive = true;
 
-        player.AddXp(WarheadRewardCount);
+        player.AddXp(WarheadRewardCount, $"Prvotní aktivace Alpha Warhead");
     }
 
     internal static void Initialize()

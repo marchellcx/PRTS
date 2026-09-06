@@ -62,6 +62,7 @@ public class PrtsClient : Entity
 
     [IndexField] private static ushort cmd_CmdRemovePlayer;
 
+    [IndexField] private static ushort cmd_CmdPostMessage;
     [IndexField] private static ushort cmd_CmdReceiveIdentity;
 
     private bool playerListUpdatePaused;
@@ -80,8 +81,6 @@ public class PrtsClient : Entity
     public override void OnClientSpawned()
     {
         base.OnClientSpawned();
-        
-        ApiLog.Info("PRTS", "Client spawned!");
 
         infoUpdateCoroutine = Timing.RunCoroutine(InfoUpdateCoroutine());     
         
@@ -200,6 +199,27 @@ public class PrtsClient : Entity
                 writer.WriteString(info.Role);
                 writer.WriteDictionary(info.CustomData);
             }
+        });
+    }
+
+    /// <summary>
+    /// Sends a command to the server to post a message to a specific channel.
+    /// </summary>
+    /// <param name="channelAlias">The alias of the channel to post the message to.</param>
+    /// <param name="message">The message content to post.</param>
+    /// <exception cref="ArgumentNullException">Thrown when <paramref name="channelAlias"/> or <paramref name="message"/> is null or empty.</exception>
+    public void CallCmdPostMessage(string channelAlias, string message)
+    {
+        if (string.IsNullOrEmpty(channelAlias))
+            throw new ArgumentNullException(nameof(channelAlias));
+
+        if (string.IsNullOrEmpty(message))
+            throw new ArgumentNullException(nameof(message));
+
+        SendRemoteCallback(cmd_CmdPostMessage, writer =>
+        {
+            writer.WriteString(channelAlias);
+            writer.WriteString(message);
         });
     }
 

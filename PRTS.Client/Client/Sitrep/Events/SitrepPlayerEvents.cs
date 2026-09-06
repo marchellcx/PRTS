@@ -1,5 +1,7 @@
-﻿using LabApi.Events.Arguments.PlayerEvents;
+﻿using InventorySystem.Items.Scp1509;
+
 using LabApi.Events.Handlers;
+using LabApi.Events.Arguments.PlayerEvents;
 
 using LabExtended.API;
 using LabExtended.Core;
@@ -160,6 +162,11 @@ public static class SitrepPlayerEvents
         /// Died to SCP-939
         /// </summary>
         Scp939,
+
+        /// <summary>
+        /// Died to SCP-106
+        /// </summary>
+        Scp106,
         
         /// <summary>
         /// Got their hands severed.
@@ -224,6 +231,7 @@ public static class SitrepPlayerEvents
         { PlayerDamageType.Tesla, "Tesla Gate" },
         { PlayerDamageType.Zombie, "Zombie" },
         { PlayerDamageType.Scp, "SCP" },
+        { PlayerDamageType.Scp106, "SCP-106" },
         { PlayerDamageType.Unknown, "Unknown" }
     };
 
@@ -382,6 +390,12 @@ public static class SitrepPlayerEvents
         if (args.Attacker is not ExPlayer attacker)
             return;
 
+        if (player.IsNpc || attacker.IsNpc)
+            return;
+
+        if (player.IsServer || attacker.IsServer)
+            return;
+
         if (args.DamageHandler == null)
             return;
 
@@ -396,7 +410,7 @@ public static class SitrepPlayerEvents
 
         var role = args.OldRole;
 
-        if (player == attacker)
+        if (player.UserId == attacker.UserId)
         {
             SitrepService.TrySendEvent(SitrepEvent.PlayerSuicide, PlayerSuicideMessage, dict =>
             {
@@ -443,17 +457,37 @@ public static class SitrepPlayerEvents
         switch (damageHandler)
         {
             case WarheadDamageHandler: return PlayerDamageType.Warhead;
-            case Scp096DamageHandler: return PlayerDamageType.Scp096;
-            case Scp049DamageHandler: return PlayerDamageType.Scp049;
-            case Scp018DamageHandler: return PlayerDamageType.Scp018;
+
             case RecontainmentDamageHandler: return PlayerDamageType.Recontainment;
             case MicroHidDamageHandler: return PlayerDamageType.MicroHID;
             case JailbirdDamageHandler: return PlayerDamageType.Jailbird;
             case FirearmDamageHandler: return PlayerDamageType.Firearm;
-            case ExplosionDamageHandler: return PlayerDamageType.Grenade;
             case DisruptorDamageHandler: return PlayerDamageType.Disruptor;
-            case ScpDamageHandler: return PlayerDamageType.Scp;
+
+            case Scp018DamageHandler: return PlayerDamageType.Scp018;
+            case Scp049DamageHandler: return PlayerDamageType.Scp049;
+            case Scp096DamageHandler: return PlayerDamageType.Scp096;
             case Scp939DamageHandler: return PlayerDamageType.Scp939;
+            case Scp1509DamageHandler: return PlayerDamageType.Scp1509;
+
+            case ScpDamageHandler scp: return scp.Attacker.Role switch
+            {
+                RoleTypeId.Scp049 => PlayerDamageType.Scp049,
+                RoleTypeId.Scp096 => PlayerDamageType.Scp096,
+                RoleTypeId.Scp106 => PlayerDamageType.Scp106,
+                RoleTypeId.Scp173 => PlayerDamageType.Scp173,
+                RoleTypeId.Scp939 => PlayerDamageType.Scp939,
+
+                _ => PlayerDamageType.Scp
+            };
+
+            case ExplosionDamageHandler explosion: return explosion.ExplosionType switch
+            { 
+                ExplosionType.Disruptor => PlayerDamageType.Disruptor,
+                ExplosionType.Jailbird => PlayerDamageType.Jailbird,
+                
+                _ => PlayerDamageType.Grenade
+            };
 
             case UniversalDamageHandler universalDamageHandler:
             {

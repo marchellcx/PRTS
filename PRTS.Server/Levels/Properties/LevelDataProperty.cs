@@ -2,12 +2,12 @@ using NiveraAPI.IO.Serialization;
 
 using PRTS.Profiles;
 
-namespace PRTS.Levels;
+namespace PRTS.Levels.Properties;
 
 /// <summary>
 /// Represents a property that stores user level and experience points.
 /// </summary>
-public class LevelProperty : ProfileProperty
+public class LevelDataProperty : ProfileProperty
 {
     private volatile int experience = 0;
 

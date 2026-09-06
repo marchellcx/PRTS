@@ -1,6 +1,5 @@
 ﻿using NiveraAPI.IO.Storage;
-
-using PRTS.Levels;
+using PRTS.Levels.Properties;
 using PRTS.Profiles.Objects;
 
 using System.Collections.Concurrent;
@@ -55,7 +54,7 @@ public class PlayerInfo
     /// <summary>
     /// Gets or sets the level information of the player.
     /// </summary>
-    public volatile LevelProperty? Level;
+    public volatile LevelDataProperty? Level;
 
     /// <summary>
     /// Gets or sets a concurrent dictionary containing custom data associated with the player.

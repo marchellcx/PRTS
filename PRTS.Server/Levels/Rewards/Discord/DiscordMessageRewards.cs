@@ -84,8 +84,6 @@ public static class DiscordMessageRewards
         {
             profile = ProfileManager.GetOrAddProfileWithDiscordId(message.Author.Id);
             profiles.Add(message.Author.Id, profile);
-
-            log.Debug($"Retrieved profile for user {message.Author.Username} ({message.Author.Id}).");
         }
 
         if (!profile.Value.CustomData.TryGetValue("DiscordTotalMessages", out var totalMessagesStr) 
@@ -93,8 +91,6 @@ public static class DiscordMessageRewards
         {
             profile.Value.CustomData["DiscordTotalMessages"] = "1";
             profile.IsDirty = true;
-
-            log.Info($"Initialized total messages for user {message.Author.Username} ({message.Author.Id}) to 1.");
         }
         else
         {
@@ -102,15 +98,10 @@ public static class DiscordMessageRewards
             {
                 if (totalMessages >= kvp.Key)
                 {
-                    log.Debug($"User {message.Author.Username} ({message.Author.Id}) has reached {totalMessages} total messages, eligible for {kvp.Value} XP reward.");
-
                     if (profile.Value.CustomData.ContainsKey($"DiscordTotalMessagesRewarded_{kvp.Key}"))
-                    {
-                        log.Debug($"User {message.Author.Username} ({message.Author.Id}) has already been rewarded for reaching {kvp.Key} total messages.");
                         continue;
-                    }
 
-                    LevelManager.ModifyProfileXp(profile, kvp.Value);
+                    LevelManager.ModifyProfileXp(profile, $"{kvp.Key} Discord zpráv (jednou)", kvp.Value);
 
                     log.Info($"Rewarded {kvp.Value} XP to user {message.Author.Username} ({message.Author.Id}) for reaching {totalMessages} total messages.");
 
@@ -155,9 +146,7 @@ public static class DiscordMessageRewards
                 return;
             }
 
-            LevelManager.ModifyProfileXp(profile, MessageRewardAmount);
-
-            log.Debug($"Rewarded {MessageRewardAmount} XP to user {message.Author.Username} ({message.Author.Id}) for sending a message.");
+            LevelManager.ModifyProfileXp(profile, $"{MessageRewardCount} Discord zpráv", MessageRewardAmount);
 
             counters.Remove(message.Author.Id);
         }

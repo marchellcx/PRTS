@@ -6,6 +6,7 @@ using LabApi.Events.Handlers;
 
 using LabExtended.API;
 using LabExtended.Events;
+using LabExtended.Extensions;
 using LabExtended.Utilities.Update;
 
 using NiveraAPI.IO.Configs;
@@ -26,7 +27,7 @@ namespace PRTS.Client.Levels.Rewards;
 public static class KillRewards
 {
     private static Dictionary<ExPlayer, float> breakneckSpeedsStopTimes = new();
-    private static Dictionary<ExPlayer, Dictionary<ExPlayer, float>> teamKills = new();
+    private static Dictionary<ExPlayer, Dictionary<ExPlayer, (RoleTypeId PlayerRole, RoleTypeId VictimRole, float KillTime)>> teamKills = new();
 
     private static HashSet<ExPlayer> traumatizedPlayers = new();
 
@@ -96,6 +97,42 @@ public static class KillRewards
     [Config("level-rewards", "multi-team-kill-interval", "The interval in seconds for multi-team kills")]
     public static int MultiTeamKillInterval { get; set; } = 60;
 
+    /// <summary>
+    /// Determines if the attack from the attacker to the target is considered a team kill based on their roles and teams.
+    /// </summary>
+    /// <param name="attacker">The role type of the attacker.</param>
+    /// <param name="target">The role type of the target.</param>
+    /// <returns>True if the attack is considered a team kill; otherwise, false.</returns>
+    public static bool IsTeamKill(RoleTypeId attacker, RoleTypeId target)
+    {
+        if (!attacker.IsAlive() || !target.IsAlive())
+            return false;
+
+        if (attacker is RoleTypeId.Tutorial || target is RoleTypeId.Tutorial)
+            return false;
+
+        var attackerTeam = attacker.GetTeam();
+        var targetTeam = target.GetTeam();
+
+        switch (attackerTeam)
+        {
+            case Team.ClassD:
+                return targetTeam is Team.ChaosInsurgency;
+
+            case Team.ChaosInsurgency:
+                return targetTeam is Team.ChaosInsurgency or Team.ClassD;
+
+            case Team.Scientists:
+                return targetTeam is Team.Scientists or Team.FoundationForces;
+
+            case Team.FoundationForces:
+                return targetTeam is Team.Scientists or Team.FoundationForces;
+
+            default:
+                return attackerTeam == targetTeam;
+        }
+    }
+
     private static void OnDied(PlayerDeathEventArgs args)
     {
         if (args.Attacker is not ExPlayer attacker
@@ -105,23 +142,23 @@ public static class KillRewards
         if (attacker == victim)
             return;
 
-        if (HitboxIdentity.IsEnemy(attacker.ReferenceHub, victim.ReferenceHub))
+        if (!IsTeamKill(attacker.Role.Type, args.OldRole))
         {
-            if (victim.Role.Type.IsHuman() && attacker.Role.Type.IsHuman())
+            if (args.OldRole.IsHuman() && attacker.Role.Type.IsHuman())
             {
-                attacker.AddXp(HumanKilledHumanReward);
+                attacker.AddXp(HumanKilledHumanReward, $"Zabití nepřitele ([{args.OldRole.GetName()}] {victim.Nickname})");
             }
-            else if (victim.Role.Is(RoleTypeId.Scp0492) && attacker.Role.Type.IsHuman())
+            else if (args.OldRole is RoleTypeId.Scp0492 && attacker.Role.Type.IsHuman())
             {
-                attacker.AddXp(HumanKilledZombieReward);
+                attacker.AddXp(HumanKilledZombieReward, $"Zabití SCP-049-2 ({victim.Nickname})");
             }
-            else if (victim.Role.Type.IsHuman() && attacker.Role.IsScp)
+            else if (args.OldRole.IsHuman() && attacker.Role.IsScp)
             {
                 if (args.DamageHandler is Scp939DamageHandler scp939DamageHandler
                     && scp939DamageHandler.Scp939DamageType is Scp939DamageType.LungeSecondary 
                                                             or Scp939DamageType.LungeTarget)
                 {
-                    attacker.AddXp(Scp939LungeKilledHumanReward);
+                    attacker.AddXp(Scp939LungeKilledHumanReward, $"Zabití nepřítele pomocí SCP-939 Lunge ([{args.OldRole.GetName()}] {victim.Nickname})");
                 }
                 else if (attacker.Role.Is(RoleTypeId.Scp173)
                     && breakneckSpeedsStopTimes.TryGetValue(attacker, out var breakneckSpeedStopTime)
@@ -135,20 +172,20 @@ public static class KillRewards
                     && scp049SenseAbility.Target != null
                     && scp049SenseAbility.Target == victim.ReferenceHub)
                 {
-                    attacker.AddXp(Scp049GoodSenseReward);
+                    attacker.AddXp(Scp049GoodSenseReward, $"Zabití nepřítele pomocí SCP-049 Sense ([{args.OldRole.GetName()}] {victim.Nickname})");
                 }
                 else if (args.DamageHandler is Scp096DamageHandler scp096DamageHandler
                     && scp096DamageHandler._attackType is Scp096DamageHandler.AttackType.Charge)
                 {
-                    attacker.AddXp(Scp096ChargeKilledHumanReward);
+                    attacker.AddXp(Scp096ChargeKilledHumanReward, $"Zabití nepřítele pomocí SCP-096 Charge ([{args.OldRole.GetName()}] {victim.Nickname})");
                 }
                 else if (attacker.Role.Is(RoleTypeId.Scp106)
                     && traumatizedPlayers.Contains(victim))
                 {
-                    attacker.AddXp(Scp106KilledTraumatizedHumanReward);
+                    attacker.AddXp(Scp106KilledTraumatizedHumanReward, $"Zabití traumatizovaného nepřítele ([{args.OldRole.GetName()}] {victim.Nickname})");
                 }
 
-                attacker.AddXp(ScpKilledHumanReward);
+                attacker.AddXp(ScpKilledHumanReward, $"Zabití nepřítele ([{args.OldRole.GetName()}] {victim.Nickname})");
             }
         }
         else
@@ -156,7 +193,7 @@ public static class KillRewards
             if (!teamKills.TryGetValue(attacker, out var dict))
                 teamKills.Add(attacker, dict = new());
 
-            dict[victim] = Time.realtimeSinceStartup;
+            dict[victim] = new(attacker.Role.Type, victim.Role.Type, Time.realtimeSinceStartup);
         }
     }
 
@@ -229,7 +266,7 @@ public static class KillRewards
 
             var first = kvp.Value.First();
 
-            if (Time.realtimeSinceStartup - first.Value < MultiTeamKillInterval)
+            if (Time.realtimeSinceStartup - first.Value.KillTime < MultiTeamKillInterval && kvp.Key.IsAlive)
                 continue;
 
             var xp = TeamKillReward;
@@ -237,7 +274,11 @@ public static class KillRewards
             for (var x = 0; x < kvp.Value.Count; x++)
                 xp *= 2;
 
-            kvp.Key.RemoveXp(xp);
+            if (kvp.Value.Count == 1)
+                kvp.Key.RemoveXp(xp, $"Zabití spoluhráče ({first.Value.VictimRole.GetName()} za {first.Value.PlayerRole.GetName()})");
+            else
+                kvp.Key.RemoveXp(xp, $"Zabití {kvp.Value.Count} spoluhráčů (za {first.Value.PlayerRole.GetName()})");
+
             kvp.Value.Clear();
         }
     }

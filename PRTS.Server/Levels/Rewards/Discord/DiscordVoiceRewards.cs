@@ -81,7 +81,7 @@ public static class DiscordVoiceRewards
 
                     if ((DateTime.UtcNow - lastVoiceActivity).TotalMinutes >= VoiceRewardInterval)
                     {
-                        LevelManager.ModifyXpDiscord(userId, VoiceRewardAmount);
+                        LevelManager.ModifyXpDiscord(userId, $"{VoiceRewardInterval} minut ve voice channelu", VoiceRewardAmount);
 
                         utcUserVoiceDuration[userId] = DateTime.UtcNow;
 

@@ -40,7 +40,7 @@ public class Plugin : LabApi.Loader.Features.Plugins.Plugin
     /// <summary>
     /// Gets the version of the plugin.
     /// </summary>
-    public override Version Version { get; } = new(0, 0, 1);
+    public override Version Version { get; } = new(0, 0, 2);
 
     /// <summary>
     /// Gets the required API version of the plugin.

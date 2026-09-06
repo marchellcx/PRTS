@@ -1,12 +1,8 @@
 ﻿using LabExtended.Core;
 using LabExtended.Core.Pooling.Pools;
 
-using NiveraAPI.Discord;
-using NiveraAPI.Services;
-
 using NiveraAPI.IO.Configs;
 
-using PRTS.Discord;
 using PRTS.Client.Sitrep.Events;
 
 namespace PRTS.Client.Sitrep;
@@ -18,43 +14,40 @@ namespace PRTS.Client.Sitrep;
 /// </summary>
 public static class SitrepService
 {
-    private static Dictionary<SitrepEvent, WebhookClient> mappedWebhooks = new();
-    
+    private static Dictionary<SitrepEvent, string> mappedChannels = new();
+
     /// <summary>
-    /// Gets or sets a dictionary that maps each Sitrep event to a corresponding Discord webhook URL.
-    /// This property is used to associate specific Sitrep events with distinct webhooks for targeted notifications.
+    /// Gets or sets a dictionary that maps Sitrep events to their respective Discord channel aliases.
     /// </summary>
-    [Config("sitrep", "event-specific-channels", "A dictionary mapping Sitrep events to their respective Discord webhook URLs.")]
+    [Config("sitrep", "event-specific-channels", "A dictionary mapping Sitrep events to their respective Discord channel aliases.")]
     public static Dictionary<SitrepEvent, string> EventSpecificWebhooks { get; set; } = new()
     {
         { SitrepEvent.WarheadStarted, string.Empty }
     };
 
     /// <summary>
-    /// Gets or sets a mapping between Discord webhook URLs and the list of Sitrep events
-    /// that should be triggered in the respective channel. This dictionary is utilized to
-    /// associate multiple Sitrep events with specific Discord channels for event notifications.
+    /// Gets or sets a dictionary that maps Discord channel aliases to a list of Sitrep events.
     /// </summary>
-    [Config("sitrep", "channel-events", "A dictionary mapping Discord webhook URLs to a list of Sitrep events that should be triggered in that channel.")]
+    [Config("sitrep", "channel-events", "A dictionary mapping Discord channel aliases to a list of Sitrep events that should be triggered in that channel.")]
     public static Dictionary<string, List<SitrepEvent>> WebhookEvents { get; set; } = new()
     {
         { "example", new() { SitrepEvent.WarheadStarted, SitrepEvent.WarheadStopped } }
     };
 
     /// <summary>
-    /// Attempts to retrieve the webhook client associated with a specified Sitrep event.
+    /// Attempts to retrieve the mapped Discord channel for a given Sitrep event.
     /// </summary>
-    /// <param name="sitrepEvent">The Sitrep event for which the webhook client is being retrieved.</param>
-    /// <param name="client">The output parameter that will contain the associated webhook client if found.</param>
-    /// <returns>True if a webhook client is successfully retrieved; otherwise, false.</returns>
-    public static bool TryGetWebhook(SitrepEvent sitrepEvent, out WebhookClient client)
+    /// <param name="sitrepEvent">The Sitrep event for which the mapped Discord channel is being retrieved.</param>
+    /// <param name="mappedChannel">The output parameter that will contain the associated Discord channel alias if found.</param>
+    /// <returns>True if a Discord channel alias is successfully retrieved; otherwise, false.</returns>
+    public static bool TryGetWebhook(SitrepEvent sitrepEvent, out string mappedChannel)
     {
-        client = null!;
+        mappedChannel = null!;
 
         if (Network.Prts == null)
             return false;
         
-        return mappedWebhooks.TryGetValue(sitrepEvent, out client);
+        return mappedChannels.TryGetValue(sitrepEvent, out mappedChannel);
     }
 
     /// <summary>
@@ -68,7 +61,7 @@ public static class SitrepService
     public static bool TrySendEvent(SitrepEvent sitrepEvent, string message,
         Action<Dictionary<string, object>>? variableBuilder, bool removeTime = false)
     {
-        if (!TryGetWebhook(sitrepEvent, out var webhook))
+        if (!TryGetWebhook(sitrepEvent, out var channel))
             return false;       
 
         if (!removeTime)
@@ -76,7 +69,7 @@ public static class SitrepService
         
         if (variableBuilder == null)
         {
-            webhook.Post(new() { Content = message }, false);
+            Network.Prts!.CallCmdPostMessage(channel, message);
             return true;
         }
         
@@ -85,8 +78,8 @@ public static class SitrepService
         variableBuilder?.Invoke(dict);
         
         var str = SitrepStrings.ReplaceVariables(message, dict);
-        
-        webhook.Post(new() { Content = str }, false);
+
+        Network.Prts!.CallCmdPostMessage(channel, str);
         
         DictionaryPool<string, object>.Shared.Return(dict);
         return true;
@@ -99,23 +92,18 @@ public static class SitrepService
     /// </summary>
     public static void Start()
     {
-        mappedWebhooks.Clear();
-        
-        var webhooks = DictionaryPool<string, WebhookClient>.Shared.Rent();
+        mappedChannels.Clear();
 
         foreach (var sitrepEvent in EnumUtils<SitrepEvent>.Values)
         {
-            if (EventSpecificWebhooks.TryGetValue(sitrepEvent, out var webhookUrl))
+            if (EventSpecificWebhooks.TryGetValue(sitrepEvent, out var channelAlias))
             {
-                if (string.IsNullOrWhiteSpace(webhookUrl))
+                if (string.IsNullOrWhiteSpace(channelAlias))
                     continue;
                 
-                if (!webhooks.TryGetValue(webhookUrl, out var webhookClient))
-                    webhooks.Add(webhookUrl, webhookClient = new UnityWebhookClient(webhookUrl));
+                mappedChannels.Add(sitrepEvent, channelAlias);
                 
-                mappedWebhooks.Add(sitrepEvent, webhookClient);
-                
-                ApiLog.Info("PRTS", $"Mapped Sitrep event &1{sitrepEvent}&r to webhook &1{webhookUrl}&r.");
+                ApiLog.Info("PRTS", $"Mapped Sitrep event &1{sitrepEvent}&r to channel &1{channelAlias}&r.");
             }
             else
             {
@@ -126,36 +114,31 @@ public static class SitrepService
                         if (string.IsNullOrWhiteSpace(kvp.Key))
                             continue;
                         
-                        if (!webhooks.TryGetValue(kvp.Key, out var webhookClient))
-                            webhooks.Add(kvp.Key, webhookClient = new UnityWebhookClient(kvp.Key));
+                        mappedChannels.Add(sitrepEvent, kvp.Key);
                         
-                        mappedWebhooks.Add(sitrepEvent, webhookClient);
-                        
-                        ApiLog.Info("PRTS", $"Mapped Sitrep event &1{sitrepEvent}&r to webhook &1{kvp.Key}&r.");
+                        ApiLog.Info("PRTS", $"Mapped Sitrep event &1{sitrepEvent}&r to channel &1{kvp.Key}&r.");
                     }
                 }
             }
         }
-        
-        DictionaryPool<string, WebhookClient>.Shared.Return(webhooks);
 
-        if (mappedWebhooks.Count == 0)
+        if (mappedChannels.Count == 0)
         {
             ApiLog.Warn("PRTS", "No Sitrep event channels mapped. Please check your configuration.");
             return;
         }
 
-        if (mappedWebhooks.Keys.Any(k => k.ToString().StartsWith("Round")))
+        if (mappedChannels.Keys.Any(k => k.ToString().StartsWith("Round")))
             SitrepRoundEvents.Start();
         else
             ApiLog.Warn("PRTS", "No Sitrep round channels mapped. Please check your configuration.");
         
-        if (mappedWebhooks.Keys.Any(k => k.ToString().StartsWith("Player")))
+        if (mappedChannels.Keys.Any(k => k.ToString().StartsWith("Player")))
             SitrepPlayerEvents.Start();
         else
             ApiLog.Warn("PRTS", "No Sitrep player channels mapped. Please check your configuration.");
         
-        if (mappedWebhooks.Keys.Any(k => k.ToString().StartsWith("Warhead")))
+        if (mappedChannels.Keys.Any(k => k.ToString().StartsWith("Warhead")))
             SitrepWarheadEvents.Start();
         else
             ApiLog.Warn("PRTS", "No Sitrep warhead channels mapped. Please check your configuration.");

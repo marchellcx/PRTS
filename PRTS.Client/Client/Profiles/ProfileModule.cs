@@ -150,8 +150,6 @@ public class ProfileModule : PrtsModule
     /// <param name="userIp">The IP address of the user starting the session.</param>
     public void CallCmdStartSession(string userId, string userNick, string userIp)
     {
-        Log.Info($"Sending session start for user ID &1{userId}&r");
-        
         SendRemoteCallback(cmd_CmdStartSession, writer =>
         {
             writer.WriteString(userId);
@@ -208,8 +206,6 @@ public class ProfileModule : PrtsModule
         session.Start();
 
         Sessions[player] = session;
-        
-        ApiLog.Debug($"Session started for user &1{userId}&r with session ID &1{sessionId}&r");
     }
 
     private static void OnPlayerLeft(ExPlayer player)

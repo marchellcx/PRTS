@@ -22,6 +22,8 @@ using PRTS.ScpSl.Objects;
 using PRTS.Levels;
 using PRTS.Profiles;
 using PRTS.Extensions;
+using NiveraAPI.IO.Configs;
+using PRTS.Levels.Properties;
 
 namespace PRTS.ScpSl;
 
@@ -31,6 +33,12 @@ namespace PRTS.ScpSl;
 [ClientType("PRTS.Client.PrtsClient")]
 public class ScpSlServer : Entity, IScpSlLatencyProvider
 {
+    /// <summary>
+    /// Gets or sets a dictionary that maps channel aliases to their corresponding IDs. This allows for easy reference and management of channels within the SCP:SL server context.
+    /// </summary>
+    [Config("scp-sl", "channel-aliases", "A dictionary mapping channel aliases to their corresponding IDs.")]
+    public static Dictionary<string, ulong> ChannelAliases { get; set; } = new();
+
     /// <summary>
     /// Event triggered when the server has been successfully identified, providing the identified <see cref="ScpSlServer"/> instance.
     /// </summary>
@@ -598,7 +606,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
             {
                 info.Profile = profile;
 
-                if (profile.Value.TryGetProperty<LevelProperty>(LevelManager.PropertyName, out var levelProperty))
+                if (profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelProperty))
                     info.Level = levelProperty;
             }
 
@@ -651,7 +659,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
             {
                 playerInfo.Profile = profile;
 
-                if (profile.Value.TryGetProperty<LevelProperty>(LevelManager.PropertyName, out var levelProperty))
+                if (profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelProperty))
                     playerInfo.Level = levelProperty;
             }
         }
@@ -668,6 +676,32 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
 
         if (anyNew || anyRemoved)
             DiscordBot?.UpdatePlayerCount(Players.Count, maxPlayers);
+    }
+
+    /// <summary>
+    /// Processes a request to post a message to a specified channel.
+    /// This method reads the incoming data to determine the target channel and the message content, then queues the message for posting via the associated Discord bot.
+    /// </summary>
+    /// <param name="reader">The reader responsible for deserializing the incoming data stream.</param>
+    [ServerCmd]
+    public void CmdPostMessage(ByteReader reader)
+    {
+        var channelAlias = reader.ReadString();
+        var messageContent = reader.ReadString();
+
+        if (DiscordBot == null)
+        {
+            Log.Warn($"Discord bot not connected to server &1{ServerAlias}&r - cannot post message to channel &1{channelAlias}&r!");
+            return;
+        }
+
+        if (!ChannelAliases.TryGetValue(channelAlias, out var channelId))
+        {
+            Log.Warn($"Channel alias &1{channelAlias}&r not found in channel aliases list!");
+            return;
+        }
+
+        DiscordBot.QueueTextMessage(channelId, messageContent);
     }
 
     /// <summary>
