@@ -1091,7 +1091,7 @@ public class ScpSlMonitor
                 {
                     var page = new PageBuilder();
 
-                    page.AddField(":main_detective: Administrátor", PunishmentManager.GetStaffString(punishment));
+                    page.AddField(":man_detective: Administrátor", PunishmentManager.GetStaffString(punishment));
                     page.AddField(":bust_in_silhouette: Hráč", PunishmentManager.GetTargetString(punishment));
                     page.AddField(":question: Důvod", punishment.Reason);
                     page.AddField(":hourglass: Datum udělení", punishment.IssuedAt.ToLocalTime().ToVeCzechString());

@@ -417,6 +417,8 @@ public static class LevelManager
 
                 foreach (var log in logsProperty.Logs.OrderByDescending(l => l.UtcTime))
                 {
+                    logBuilder.Clear();
+
                     var change = log.Change > 0 ? $"+{log.Change}" : $"-{log.Change}";
                     var reason = string.IsNullOrEmpty(log.Reason) ? "No reason provided" : log.Reason;
 
@@ -425,15 +427,15 @@ public static class LevelManager
                     if (fieldBuilder.Length + logBuilder.Length <= 1024)
                     {
                         fieldBuilder.Append(logBuilder);
-
-                        logBuilder.Clear();
                     }
                     else
                     {
-                        builder.AddField(":scroll: Historie", fieldBuilder.ToString());
                         break;
                     }
                 }
+
+                if (fieldBuilder.Length > 0)
+                    builder.AddField(":scroll: Historie", fieldBuilder.ToString());
 
                 logBuilder.Clear();
                 fieldBuilder.Clear();

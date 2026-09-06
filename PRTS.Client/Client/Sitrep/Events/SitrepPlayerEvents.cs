@@ -7,12 +7,15 @@ using LabExtended.API;
 using LabExtended.Core;
 using LabExtended.Events;
 
+using NiveraAPI.Extensions;
 using NiveraAPI.IO.Configs;
 
 using PlayerRoles;
 using PlayerRoles.PlayableScps.Scp939;
 
 using PlayerStatsSystem;
+
+using PRTS.Client.Levels.Rewards;
 
 namespace PRTS.Client.Sitrep.Events;
 
@@ -235,8 +238,6 @@ public static class SitrepPlayerEvents
         { PlayerDamageType.Unknown, "Unknown" }
     };
 
-    private static bool init;
-
     /// <summary>
     /// The message template sent when a player receives damage from a teammate.
     /// Placeholders in the template can include:
@@ -304,6 +305,9 @@ public static class SitrepPlayerEvents
     [Config("sitrep", "message-player-spawned", "The message to send when a player spawns.")]
     public static string PlayerSpawnedMessage { get; set; } = "Player $Player.Nick spawned as $Player.Role!";
 
+    private static bool init;
+    private static Dictionary<ExPlayer, RoleTypeId> previousRoles = new();
+
     /// <summary>
     /// Starts the SitrepPlayerEvents service, registering the necessary event listeners
     /// and initializing the associated SitrepService instance.
@@ -322,18 +326,31 @@ public static class SitrepPlayerEvents
         
         ExPlayerEvents.Left += OnPlayerLeft;
         ExPlayerEvents.Verified += OnPlayerJoined;
+
+        ExRoundEvents.WaitingForPlayers += OnWaiting;
     }
 
+    private static void OnWaiting()
+        => previousRoles.Clear();
+
     private static void OnPlayerLeft(ExPlayer player)
-        => SitrepService.TrySendEvent(SitrepEvent.PlayerLeft, PlayerLeftMessage, dict => dict.AddPlayerVariables("Player", player));
-    
+    {
+        previousRoles.Remove(player);
+
+        SitrepService.TrySendEvent(SitrepEvent.PlayerLeft, PlayerLeftMessage, dict => dict.AddPlayerVariables("Player", player));
+    }
+
     private static void OnPlayerJoined(ExPlayer player)
-        => SitrepService.TrySendEvent(SitrepEvent.PlayerJoined, PlayerJoinedMessage, dict => dict.AddPlayerVariables("Player", player));
+    {
+        SitrepService.TrySendEvent(SitrepEvent.PlayerJoined, PlayerJoinedMessage, dict => dict.AddPlayerVariables("Player", player));
+    }
 
     private static void OnPlayerSpawned(PlayerChangedRoleEventArgs args)
     {
         if (args.Player is not ExPlayer player)
             return;
+
+        previousRoles[player] = args.OldRole;
 
         if (!args.NewRole.RoleTypeId.IsAlive())
             return;
@@ -349,6 +366,12 @@ public static class SitrepPlayerEvents
         if (args.Attacker is not ExPlayer attacker)
             return;
 
+        if (player.IsNpc || attacker.IsNpc)
+            return;
+
+        if (player.IsServer || attacker.IsServer)
+            return;
+
         if (args.DamageHandler == null)
             return;
 
@@ -358,9 +381,9 @@ public static class SitrepPlayerEvents
             ? translation 
             : damageType.ToString();
         
-        if (!HitboxIdentity.IsEnemy(attacker.ReferenceHub, player.ReferenceHub))
+        if (KillRewards.IsTeamKill(attacker.Role, player.Role))
         {
-            SitrepService.TrySendEvent(SitrepEvent.PlayerTeamDamage, PlayerTeamKillMessage, dict =>
+            SitrepService.TrySendEvent(SitrepEvent.PlayerTeamDamage, PlayerTeamDamageMessage, dict =>
             {
                 dict.AddPlayerVariables("Player", player);
                 dict.AddPlayerVariables("Attacker", attacker);
@@ -384,10 +407,10 @@ public static class SitrepPlayerEvents
 
     private static void OnPlayerDeath(PlayerDeathEventArgs args)
     {
-        if (args.Player is not ExPlayer player)
+        if (args.Attacker is not ExPlayer attacker)
             return;
 
-        if (args.Attacker is not ExPlayer attacker)
+        if (args.Player is not ExPlayer player)
             return;
 
         if (player.IsNpc || attacker.IsNpc)
@@ -404,11 +427,13 @@ public static class SitrepPlayerEvents
 
         var damageAmount = (args.DamageHandler as StandardDamageHandler)!.TotalDamageDealt;
         var damageType = TranslateDamage(args.DamageHandler);
+
         var damageName = DamageTranslations.TryGetValue(damageType, out var translation) 
             ? translation 
             : damageType.ToString();
 
-        var role = args.OldRole;
+        var targetRole = previousRoles.GetValueOrDefault(player, args.OldRole);
+        var attackerRole = previousRoles.GetValueOrDefault(attacker, attacker.Role.Type);
 
         if (player.UserId == attacker.UserId)
         {
@@ -416,23 +441,22 @@ public static class SitrepPlayerEvents
             {
                 dict.AddPlayerVariables("Player", player);
 
-                dict["Player.Role"] = role.ToString();
+                dict["Player.Role"] = targetRole.ToString();
 
                 dict.Add("DamageName", damageName);
                 dict.Add("DamageAmount", damageAmount.ToString("0.00"));
             });
         }
-        else if (!HitboxIdentity.IsEnemy(attacker.Role.Type, role)
-            && attacker.Role.Type is not RoleTypeId.ClassD 
-            && role is not RoleTypeId.ClassD)
-       {
+        else if (KillRewards.IsTeamKill(attackerRole, args.OldRole))
+        {
             SitrepService.TrySendEvent(SitrepEvent.PlayerTeamKill, PlayerTeamKillMessage, dict =>
             {
                 dict.AddPlayerVariables("Player", player);
                 dict.AddPlayerVariables("Attacker", attacker);
                 
-                dict["Player.Role"] = role.ToString();
-                
+                dict["Player.Role"] = targetRole.ToString();
+                dict["Attacker.Role"] = attackerRole.ToString();
+
                 dict.Add("DamageName", damageName);
                 dict.Add("DamageAmount", damageAmount.ToString("0.00"));
             });
@@ -444,7 +468,8 @@ public static class SitrepPlayerEvents
                 dict.AddPlayerVariables("Player", player);
                 dict.AddPlayerVariables("Attacker", attacker);
                 
-                dict["Player.Role"] = role.ToString();
+                dict["Player.Role"] = targetRole.ToString();
+                dict["Attacker.Role"] = attackerRole.ToString();
                 
                 dict.Add("DamageName", damageName);
                 dict.Add("DamageAmount", damageAmount.ToString("0.00"));

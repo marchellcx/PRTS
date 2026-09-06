@@ -15,6 +15,7 @@ using PRTS.Profiles;
 using PRTS.Database;
 using PRTS.RoleSync;
 using PRTS.Extensions;
+
 using NiveraAPI.Extensions;
 
 namespace PRTS.Main;
@@ -121,7 +122,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         builder.WithUsers(Context.User);
         builder.WithPages(builders);
 
-        await bot.Fergun.SendPaginatorAsync(builder.Build(), Context.Channel);
+        await bot.Fergun.SendPaginatorAsync(builder.Build(), Context.Interaction, null, InteractionResponseType.ChannelMessageWithSource, true);
     }
 
     /// <summary>

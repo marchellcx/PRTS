@@ -308,12 +308,12 @@ public static class PunishmentManager
     public static string GetTargetString(PunishmentInfo punishment)
     {
         if (!punishment.TryGetTargetProfile(out var targetProfile))
-            return "Neznámý hráč";
+            return punishment.TargetId;
 
         if (targetProfile.Value.DiscordId != 0)
-            return MentionUtils.MentionUser(targetProfile.Value.DiscordId);
+            return $"{targetProfile.Value.GetNickname()} ({targetProfile.Value.UserId} / {targetProfile.Value.GetAddress()} - {MentionUtils.MentionUser(targetProfile.Value.DiscordId)})";
         else
-            return targetProfile.Value.GetNickname();
+            return $"{targetProfile.Value.GetNickname()} ({targetProfile.Value.UserId} / {targetProfile.Value.GetAddress()})";
     }
 
     /// <summary>
@@ -324,12 +324,12 @@ public static class PunishmentManager
     public static string GetRevokerString(PunishmentInfo punishment)
     {
         if (!punishment.TryGetRevokedProfile(out var revokerProfile))
-            return "Neznámý hráč";
+            return punishment.RevokedId;
 
         if (revokerProfile.Value.DiscordId != 0)
-            return MentionUtils.MentionUser(revokerProfile.Value.DiscordId);
+            return $"{revokerProfile.Value.GetNickname()} ({MentionUtils.MentionUser(revokerProfile.Value.DiscordId)})";
         else
-            return revokerProfile.Value.GetNickname();
+            return $"{revokerProfile.Value.GetNickname()} ({revokerProfile.Value.UserId})";
     }
 
     /// <summary>
@@ -340,12 +340,12 @@ public static class PunishmentManager
     public static string GetStaffString(PunishmentInfo punishment)
     {
         if (!punishment.TryGetStaffProfile(out var staffProfile))
-            return "Neznámý administrátor";
+            return punishment.StaffId;
 
         if (staffProfile.Value.DiscordId != 0)
-            return MentionUtils.MentionUser(staffProfile.Value.DiscordId);
+            return $"{staffProfile.Value.GetNickname()} ({MentionUtils.MentionUser(staffProfile.Value.DiscordId)})";
         else
-            return staffProfile.Value.GetNickname();
+            return $"{staffProfile.Value.GetNickname()} ({staffProfile.Value.UserId})";
     }
 
     private static async Task PostPunishmentAsync(StorageValue<PunishmentInfo> punishmentInfo)
