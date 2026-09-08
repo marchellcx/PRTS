@@ -1,9 +1,11 @@
 ﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 
 using Discord;
 using Discord.WebSocket;
 
 using NiveraAPI.Console;
+using NiveraAPI.IO.Configs;
 
 using PRTS.Discord;
 
@@ -14,6 +16,18 @@ namespace PRTS.ScpSl.Discord;
 /// </summary>
 public class ScpSlBot : DiscordBot
 {
+    private static volatile int countUpdateInterval = 5000;
+
+    /// <summary>
+    /// Gets or sets the interval in milliseconds at which the bot updates its player count status.
+    /// </summary>
+    [Config("scp-sl", "count-update-interval", "The interval in milliseconds at which the bot updates its player count status.")]
+    public static int CountUpdateInterval
+    {
+        get => countUpdateInterval;
+        set => countUpdateInterval = value;
+    }
+
     private volatile ScpSlServer? server;
     private volatile ConcurrentQueue<KeyValuePair<ulong, string>> messages = new();
 
@@ -21,6 +35,8 @@ public class ScpSlBot : DiscordBot
 
     private volatile int maxPlayerCount;
     private volatile int currentPlayerCount;
+
+    private volatile Stopwatch countUpdateWatch = new();
 
     /// <summary>
     /// Creates a new instance of the <see cref="ScpSlBot"/> class.
@@ -74,7 +90,8 @@ public class ScpSlBot : DiscordBot
     /// </summary>
     public virtual void OnServerDisconnected()
     {
-
+        Status = UserStatus.DoNotDisturb;
+        ActivityText = "Disconnected!";
     }
 
     /// <summary>
@@ -88,6 +105,8 @@ public class ScpSlBot : DiscordBot
         var client = Client;
 
         RegisterCommands<ScpSlCommands>();
+
+        countUpdateWatch.Restart();
         
         Task.Run(() => UpdateStatusAsync(client));
         Task.Run(() => UpdateMessagesAsync(client));
@@ -99,12 +118,14 @@ public class ScpSlBot : DiscordBot
         {
             try
             {
-                await Task.Delay(2000);
+                await Task.Delay(100);
 
                 if (Server != null)
                 {
-                    if (countUpdateRequested)
+                    if (countUpdateRequested || (countUpdateInterval > 0 && countUpdateWatch.ElapsedMilliseconds >= countUpdateInterval))
                     {
+                        countUpdateWatch.Restart();
+
                         var text = string.Concat(currentPlayerCount, " / ", maxPlayerCount);
                         var status = UserStatus.Idle;
 
@@ -117,18 +138,21 @@ public class ScpSlBot : DiscordBot
                         if (client.Activity == null || (client.Activity.Name != text && client.Activity.Details != text))
                             await client.SetCustomStatusAsync(text);
 
-                        Log.Debug($"Updated status to &2{status}&r with activity &3{text}&r");
-
                         countUpdateRequested = false;
                     }
                 }
                 else
                 {
-                    if (client.Status != UserStatus.DoNotDisturb)
-                        await client.SetStatusAsync(UserStatus.DoNotDisturb);      
+                    if (countUpdateInterval > 0 && countUpdateWatch.ElapsedMilliseconds >= countUpdateInterval)
+                    {
+                        countUpdateWatch.Restart();
 
-                    if (client.Activity == null || (client.Activity.Name != "Disconnected!" && client.Activity.Details != "Disconnected!"))
-                        await client.SetCustomStatusAsync("Disconnected!");
+                        if (client.Status != UserStatus.DoNotDisturb)
+                            await client.SetStatusAsync(UserStatus.DoNotDisturb);
+
+                        if (client.Activity == null || (client.Activity.Name != "Disconnected!" && client.Activity.Details != "Disconnected!"))
+                            await client.SetCustomStatusAsync("Disconnected!");
+                    }
                 }
             }
             catch (Exception ex)
@@ -142,8 +166,6 @@ public class ScpSlBot : DiscordBot
 
     private async Task UpdateMessagesAsync(DiscordSocketClient client)
     {
-        Log.Info("Started message update thread");
-        
         while (client.ConnectionState == ConnectionState.Connected)
         {
             await Task.Delay(1000);
@@ -190,7 +212,5 @@ public class ScpSlBot : DiscordBot
                 }
             }
         }
-        
-        Log.Info("Stopped message update thread");
     }
 }

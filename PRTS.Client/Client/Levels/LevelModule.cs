@@ -407,11 +407,10 @@ public class LevelModule : PrtsModule
     public void RpcNotifyChange(ByteReader reader)
     {
         var userId = reader.ReadString();
+        var reason = reader.ReadString();
 
         var newLevel = reader.ReadInt32();
         var newExperience = reader.ReadInt32();
-
-        var reason = reader.ReadString();
 
         if (ExPlayer.TryGetByUserId(userId, out var player))
         {

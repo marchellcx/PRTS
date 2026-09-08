@@ -31,6 +31,13 @@ public class DiscordLog
     /// <returns>A completed task representing the asynchronous operation.</returns>
     public Task Log(LogMessage msg)
     {
+        if (msg.Message == null)
+            return Task.CompletedTask;
+
+        if (msg.Message.StartsWith("You're using the")
+            || msg.Message.StartsWith("Rate limit triggered:"))
+            return Task.CompletedTask;
+
         switch (msg.Severity)
         {
             case LogSeverity.Info:

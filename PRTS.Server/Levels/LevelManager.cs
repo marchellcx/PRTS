@@ -17,7 +17,9 @@ using PRTS.ScpSl;
 using PRTS.ScpSl.Modules.Levels;
 
 using Discord.WebSocket;
+
 using PRTS.Levels.Properties;
+
 using System.Text;
 
 namespace PRTS.Levels;
@@ -111,10 +113,7 @@ public static class LevelManager
         if (profile.Value.DiscordId != 0)
             UpdateDiscordRoles(profile.Value, level.Level);
 
-        ScpSlManager.BroadcastEntities<LevelModule>(module =>
-        { 
-            module.CallRpcNotifyChange(profile.Value.UserId, reason, level.Level, levelProperty.Experience);
-        });
+        ScpSlManager.BroadcastEntities<LevelModule>(module => { module.CallRpcNotifyChange(profile.Value.UserId, reason, level.Level, levelProperty.Experience); });
         
         log.Info($"Reset XP and level of &1{userId}&r to their initial values!");
         return true;
@@ -303,10 +302,7 @@ public static class LevelManager
 
             levels.Experience = newExperience;
 
-            ScpSlManager.BroadcastEntities<LevelModule>(module =>
-            {
-                module.CallRpcNotifyChange(profile.Value.UserId, reason, newLevel.Level, levels.Experience);
-            });
+            ScpSlManager.BroadcastEntities<LevelModule>(module => { module.CallRpcNotifyChange(profile.Value.UserId, reason, newLevel.Level, levels.Experience); });
 
             if (curLevel.Level != newLevel.Level)
             {
@@ -424,7 +420,7 @@ public static class LevelManager
 
                     logBuilder.AppendLine($"- {change} XP - {reason}");
 
-                    if (fieldBuilder.Length + logBuilder.Length <= 1024)
+                    if (fieldBuilder.Length + logBuilder.Length <= 4096)
                     {
                         fieldBuilder.Append(logBuilder);
                     }
@@ -435,7 +431,7 @@ public static class LevelManager
                 }
 
                 if (fieldBuilder.Length > 0)
-                    builder.AddField(":scroll: Historie", fieldBuilder.ToString());
+                    builder.WithDescription($":scroll: Historie\n{fieldBuilder.ToString()}");
 
                 logBuilder.Clear();
                 fieldBuilder.Clear();
