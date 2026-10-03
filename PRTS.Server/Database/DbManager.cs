@@ -16,7 +16,6 @@ using PRTS.Discord.MessageCache;
 using PRTS.Profiles.Objects;
 using PRTS.Punishments.Objects;
 
-using PRTS.ScpSl.Modules.Plugins;
 using PRTS.ScpSl.Modules.Reports;
 
 using PRTS.Staff;
@@ -231,29 +230,6 @@ public static class DbManager
             };
 
             return role;
-        };
-        
-        ByteSerializer<PluginInfo>.Serialize = (writer, info) =>
-        {
-            writer.WriteString(info.Name);
-            writer.WriteString(info.File);
-            writer.WriteString(info.Author);
-            writer.WriteString(info.Version);
-            writer.WriteString(info.Description);
-        };
-
-        ByteSerializer<PluginInfo>.Deserialize = reader =>
-        {
-            var info = new PluginInfo
-            {
-                Name = reader.ReadString(),
-                File = reader.ReadString(),
-                Author = reader.ReadString(),
-                Version = reader.ReadString(),
-                Description = reader.ReadString()
-            };
-
-            return info;
         };
         
         ByteSerializer<CachedDiscordMessage>.Serialize = (writer, msg) =>

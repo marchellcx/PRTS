@@ -39,6 +39,11 @@ public class PrtsClient : Entity
     }
 
     /// <summary>
+    /// Defines a constant representing the full player synchronization flag.
+    /// </summary>
+    public const ushort FullPlayerSyncFlag = 2 | 4 | 8 | 16 | 32 | 64 | 128;
+
+    /// <summary>
     /// Gets or sets the alias of the server to connect to.
     /// </summary>
     [Config("prts", "server-alias", "The alias of the server to connect to.")]
@@ -49,6 +54,7 @@ public class PrtsClient : Entity
     /// </summary>
     public static PrtsClient? Active { get; private set; }
 
+    private int syncTps;
     private bool syncLobbyLock;
     private bool syncRoundLock;
 
@@ -108,10 +114,7 @@ public class PrtsClient : Entity
     /// <param name="tps">The current ticks per second (TPS) value to synchronize with the server.</param>
     public void CallCmdSyncTps(int tps)
     {
-        SendRemoteCallback(cmd_CmdSyncTps, writer =>
-        {
-            writer.WriteInt32(tps);
-        });
+        SendRemoteCallback(cmd_CmdSyncTps, writer => writer.WriteInt32(tps));
     }
 
     /// <summary>
@@ -120,10 +123,7 @@ public class PrtsClient : Entity
     /// <param name="isLocked">A boolean value indicating whether the lobby is locked.</param>
     public void CallCmdSyncLobbyLock(bool isLocked)
     {
-        SendRemoteCallback(cmd_CmdSyncLobbyLock, writer =>
-        {
-            writer.WriteBool(isLocked);
-        });
+        SendRemoteCallback(cmd_CmdSyncLobbyLock, writer => writer.WriteBool(isLocked));
     }
 
     /// <summary>
@@ -132,10 +132,7 @@ public class PrtsClient : Entity
     /// <param name="isLocked">A boolean value indicating whether the round is locked.</param>
     public void CallCmdSyncRoundLock(bool isLocked)
     {
-        SendRemoteCallback(cmd_CmdSyncRoundLock, writer =>
-        {
-            writer.WriteBool(isLocked);
-        });
+        SendRemoteCallback(cmd_CmdSyncRoundLock, writer => writer.WriteBool(isLocked));
     }
 
     /// <summary>
@@ -148,32 +145,21 @@ public class PrtsClient : Entity
         if (string.IsNullOrEmpty(userId))
             throw new ArgumentNullException(nameof(userId));
 
-        SendRemoteCallback(cmd_CmdRemovePlayer, writer =>
-        {
-            writer.WriteString(userId);
-        });
+        SendRemoteCallback(cmd_CmdRemovePlayer, writer => writer.WriteString(userId));
     }
 
     /// <summary>
     /// Sends a command to the server to synchronize a specific player's information.
     /// </summary>
     /// <param name="info">The player's information to synchronize.</param>
+    /// <param name="hash">A bitmask indicating which properties of the player to synchronize.</param>
     /// <exception cref="ArgumentNullException">Thrown when <paramref name="info"/> is null.</exception>
-    public void CallCmdSyncPlayer(PlayerInfo info)
+    public void CallCmdSyncPlayer(PlayerInfo info, ushort hash)
     {
         if (info == null)
             throw new ArgumentNullException(nameof(info));
 
-        SendRemoteCallback(cmd_CmdSyncPlayer, writer =>
-        {
-            writer.WriteString(info.UserId);
-            writer.WriteString(info.Nick);
-            writer.WriteString(info.Address);
-            writer.WriteString(info.Country);
-            writer.WriteInt32(info.Latency);
-            writer.WriteString(info.Role);
-            writer.WriteDictionary(info.CustomData);
-        });
+        SendRemoteCallback(cmd_CmdSyncPlayer, writer => WritePlayer(writer, info, hash));
     }
 
     /// <summary>
@@ -188,17 +174,7 @@ public class PrtsClient : Entity
             writer.WriteByte((byte)PlayerToInfo.Count);
 
             foreach (var kvp in PlayerToInfo)
-            {
-                var info = kvp.Value;
-
-                writer.WriteString(info.UserId);
-                writer.WriteString(info.Nick);
-                writer.WriteString(info.Address);
-                writer.WriteString(info.Country);
-                writer.WriteInt32(info.Latency);
-                writer.WriteString(info.Role);
-                writer.WriteDictionary(info.CustomData);
-            }
+                WritePlayer(writer, kvp.Value, FullPlayerSyncFlag);
         });
     }
 
@@ -247,17 +223,7 @@ public class PrtsClient : Entity
             if (!player.IsVerified)
                 continue;
 
-            var info = new PlayerInfo
-            {
-                UserId = player.UserId,
-                Nick = player.Nickname,
-                Address = player.IpAddress,
-                Country = player.CountryCode,
-                Latency = player.Peer?.RoundTripTime ?? 0,
-                Role = player.Role.Name,
-            };
-
-            PlayerToInfo[player] = info;
+            PlayerToInfo[player] = CreatePlayer(player);
         }
 
         CallCmdSyncPlayers();
@@ -415,17 +381,7 @@ public class PrtsClient : Entity
                 if (!player.IsVerified)
                     continue;
 
-                var info = new PlayerInfo
-                {
-                    UserId = player.UserId,
-                    Nick = player.Nickname,
-                    Address = player.IpAddress,
-                    Country = player.CountryCode,
-                    Latency = player.Peer?.RoundTripTime ?? 0,
-                    Role = player.Role.Name,
-                };
-
-                Network.Prts.PlayerToInfo[player] = info;
+                Network.Prts.PlayerToInfo[player] = CreatePlayer(player);
             }
 
             Network.Prts.CallCmdSyncPlayers();
@@ -452,34 +408,23 @@ public class PrtsClient : Entity
         if (Network.Prts.playerListUpdatePaused)
             return;
 
-        var info = new PlayerInfo
-        {
-            UserId = player.UserId,
-            Nick = player.Nickname,
-            Address = player.IpAddress,
-            Country = player.CountryCode,
-            Latency = player.Peer?.RoundTripTime ?? 0,
-            Role = player.Role.Name,
-        };
+        var info = CreatePlayer(player);
 
         Network.Prts.PlayerToInfo[player] = info;
-        Network.Prts.CallCmdSyncPlayer(info);
+        Network.Prts.CallCmdSyncPlayer(info, FullPlayerSyncFlag);
     }
 
     private IEnumerator<float> InfoUpdateCoroutine()
     {
-        var lastTps = -1;
-
         while (true)
         {
             yield return Timing.WaitForOneFrame;
 
             var tps = Mathf.CeilToInt(ExServer.Tps);
 
-            if (tps != lastTps)
+            if (tps != syncTps)
             {
-                lastTps = tps;
-
+                syncTps = tps;
                 CallCmdSyncTps(tps);
             }
 
@@ -499,33 +444,73 @@ public class PrtsClient : Entity
             {
                 if (kvp.Key?.ReferenceHub != null)
                 {
+                    var hash = (ushort)0;
                     var info = kvp.Value;
 
                     var role = kvp.Key.Role.Name;
                     var latency = kvp.Key.Peer?.RoundTripTime ?? 0;
 
-                    var sync = false;
-
                     if (info.Latency != latency)
                     {
+                        hash |= 16;
                         info.Latency = latency;
-
-                        sync = true;
                     }
 
                     if (info.Role != role)
                     {
+                        hash |= 32;
                         info.Role = role;
-
-                        sync = true;
                     }
 
-                    if (sync)
+                    if (info.SyncCustomData)
                     {
-                        CallCmdSyncPlayer(info);
+                        hash |= 64;
+                        info.SyncCustomData = false;
                     }
+
+                    if (hash != 0)
+                        CallCmdSyncPlayer(info, hash);
                 }
             }
         }
+    }
+
+    private static PlayerInfo CreatePlayer(ExPlayer player)
+    {
+        return new PlayerInfo
+        {
+            UserId = player.UserId,
+            Nick = player.Nickname,
+            Address = player.IpAddress,
+            Country = player.CountryCode,
+            Latency = player.Peer?.RoundTripTime ?? 0,
+            Role = player.Role.Name,
+        };
+    }
+
+    private static void WritePlayer(ByteWriter writer, PlayerInfo playerInfo, ushort hash)
+    {
+        var writeAll = hash == FullPlayerSyncFlag;
+
+        writer.WriteString(playerInfo.UserId);
+        writer.WriteUInt16(hash);
+
+        if (writeAll || (hash & 2) != 0)
+            writer.WriteString(playerInfo.Nick);
+
+        if (writeAll || (hash & 4) != 0)
+            writer.WriteString(playerInfo.Address);
+
+        if (writeAll || (hash & 8) != 0)
+            writer.WriteString(playerInfo.Country);
+
+        if (writeAll || (hash & 16) != 0)
+            writer.WriteInt32(playerInfo.Latency);
+
+        if (writeAll || (hash & 32) != 0)
+            writer.WriteString(playerInfo.Role);
+
+        if (writeAll || (hash & 64) != 0)
+            writer.WriteDictionary(playerInfo.CustomData);
     }
 }

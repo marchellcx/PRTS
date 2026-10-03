@@ -22,7 +22,6 @@ using PRTS.Client.Profiles.Sessions;
 
 using PRTS.Client.Reports.Objects;
 using PRTS.Client.Punishments.Objects;
-using PRTS.Client.Plugins.Objects;
 
 namespace PRTS;
 
@@ -293,28 +292,6 @@ public static class Network
         
         ByteSerializer<PunishmentInfo>.Serialize = PunishmentSerialization.WritePunishmentInfo;
         ByteSerializer<PunishmentInfo>.Deserialize = PunishmentSerialization.ReadPunishmentInfo;
-        
-        ByteSerializer<PluginInfo>.Serialize = (writer, info) =>
-        {
-            writer.WriteString(info.Name);
-            writer.WriteString(info.File);
-            writer.WriteString(info.Author);
-            writer.WriteString(info.Version);
-            writer.WriteString(info.Description);
-        };
-
-        ByteSerializer<PluginInfo>.Deserialize = reader =>
-        {
-            var info = new PluginInfo();
-
-            info.Name = reader.ReadString();
-            info.File = reader.ReadString();
-            info.Author = reader.ReadString();
-            info.Version = reader.ReadString();
-            info.Description = reader.ReadString();
-
-            return info;
-        };
     }
 
     private static void DestroyClient()

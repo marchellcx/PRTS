@@ -20,6 +20,7 @@ public static class DateTimeExtensions
         "května",
         "června",
         "července",
+        "srpna",
         "září",
         "října",
         "listopadu",

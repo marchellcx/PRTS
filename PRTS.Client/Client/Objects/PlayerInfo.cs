@@ -39,4 +39,9 @@ public class PlayerInfo
     /// Gets or sets a concurrent dictionary containing custom data associated with the player.
     /// </summary>
     public Dictionary<string, string> CustomData = new();
+
+    /// <summary>
+    /// Gets or sets a value indicating whether to synchronize custom data for the player.
+    /// </summary>
+    public bool SyncCustomData;
 }

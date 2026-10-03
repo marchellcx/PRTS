@@ -8,20 +8,25 @@ using Fergun.Interactive.Pagination;
 using NiveraAPI.Steam;
 using NiveraAPI.Console;
 using NiveraAPI.Utilities;
+using NiveraAPI.Extensions;
 
 using PRTS.Staff;
+using PRTS.Levels;
 using PRTS.Discord;
-using PRTS.Profiles;
 using PRTS.Database;
+using PRTS.Profiles;
 using PRTS.RoleSync;
 using PRTS.Extensions;
-
-using NiveraAPI.Extensions;
+using PRTS.Levels.Properties;
 
 namespace PRTS.Main;
 
+/// <summary>
+/// Represents the main commands for the Discord bot, providing functionalities such as profile management, staff role management, role synchronization, and account linking with Steam.
+/// </summary>
 public class MainCommands : InteractionModuleBase<SocketInteractionContext>
 {
+    #region Profiles
     /// <summary>
     /// Displays the profile of the user.
     /// </summary>
@@ -50,7 +55,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         Func<PageBuilder> factory;
 
         if (!string.IsNullOrEmpty(profile.Value.UserId)
-            && profile.Value.UserId.TrySplit('@', true, 2, out var segments) 
+            && profile.Value.UserId.TrySplit('@', true, 2, out var segments)
             && segments[1] == "steam")
         {
             var info = await SteamClient.GetProfileInfoAsync(segments[0]);
@@ -124,7 +129,9 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
 
         await bot.Fergun.SendPaginatorAsync(builder.Build(), Context.Interaction, null, InteractionResponseType.ChannelMessageWithSource, true);
     }
+    #endregion
 
+    #region Staff Roles
     /// <summary>
     /// Adds permissions to a staff role.
     /// </summary>
@@ -132,11 +139,11 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="permissions">A comma-separated list of permissions to be added.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     [SlashCommand("addstaffperms", "Přidá permise staff roli.")]
-    public async Task AddPermissionsAsync(
+    public async Task AddStaffPermissionsAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role,
         [Summary("Permise", "Seznam permisí které přidat (oddělené čárkou).")] string permissions)
     {
-        if (!Context.HasPermission("ManageStaff"))
+        if (!Context.HasPermission(Permissions.ManageStaff))
         {
             await RespondAsync(":x: | Nemáš práva na správu rolí.", ephemeral: true);
             return;
@@ -161,11 +168,11 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="permissions">A comma-separated list of permissions to be added.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     [SlashCommand("delstaffperms", "Odebere permise staff roli.")]
-    public async Task DeletePermissionsAsync(
+    public async Task DeleteStaffPermissionsAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role,
         [Summary("Permise", "Seznam permisí které odebrat (oddělené čárkou).")] string permissions)
     {
-        if (!Context.HasPermission("ManageStaff"))
+        if (!Context.HasPermission(Permissions.ManageStaff))
         {
             await RespondAsync(":x: | Nemáš práva na správu rolí.", ephemeral: true);
             return;
@@ -189,10 +196,10 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="role">The Discord role that is associated with the staff role to be removed.</param>
     /// <returns>A task representing the asynchronous operation of removing the staff role.</returns>
     [SlashCommand("removestaffrole", "Odstraní staff roli.")]
-    public async Task RemoveAsync(
+    public async Task RemoveStaffRoleAsync(
         [Summary("Role", "Role propojená se staff rolí.")] SocketRole role)
     {
-        if (!Context.HasPermission("ManageStaff"))
+        if (!Context.HasPermission(Permissions.ManageStaff))
         {
             await RespondAsync(":x: | Nemáš práva na správu rolí.", ephemeral: true);
             return;
@@ -222,13 +229,13 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
     /// <param name="perms">A comma-separated string representing the permissions associated with the staff role.</param>
     /// <returns>A task representing the asynchronous operation of creating or updating the staff role.</returns>
     [SlashCommand("createstaffrole", "Vytvoří staff roli.")]
-    public async Task CreateAsync(
+    public async Task CreateStaffRoleAsync(
         [Summary("Role", "Role propojená se staff rolí.")]
         SocketRole role,
         [Summary("Administrátor", "Zda jsou lidi s touto rolí administrátoři.")] bool isAdmin,
         [Summary("Permise", "Seznam permisí (oddělené pomocí čárky)")] string perms = "")
     {
-        if (!Context.HasPermission("ManageStaff"))
+        if (!Context.HasPermission(Permissions.ManageStaff))
         {
             await RespondAsync($":x: | Nemáš práva na správu rolí.", ephemeral: true);
             return;
@@ -257,8 +264,10 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
             await RespondAsync($":white_check_mark: | Role `{staffRole.Id}` byla vytvořena.", ephemeral: true);
         }
     }
-    
-        /// <summary>
+    #endregion
+
+    #region Role Sync
+    /// <summary>
     /// Adds a remote role and associates it with a list of server roles.
     /// This method synchronizes a specified role with one or more roles on the Discord server,
     /// enabling users with the specified roles to access the remote role.
@@ -271,7 +280,7 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         [Summary("Group", "Název skupiny která bude přidělena na serveru.")] string remoteRole, 
         [Summary("Role", "Role která bude v synchronizaci.")] SocketRole roleId)
     {
-        if (!Context.HasPermission("ManageSyncRoles"))
+        if (!Context.HasPermission(Permissions.ManageSyncRoles))
         {
             await RespondAsync(":x: Nemáš povolení na tento příkaz.", ephemeral: true);
             return;
@@ -296,18 +305,20 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
         [Summary("Group", "Název skupiny která bude přidělena na serveru.")] string remoteRole, 
         [Summary("Role", "Role kterou odebrat ze synchronizace.")] SocketRole role)
     {
-        if (!Context.HasPermission("ManageSyncRoles"))
+        if (!Context.HasPermission(Permissions.ManageSyncRoles))
         {
             await RespondAsync(":x: Nemáš povolení na tento příkaz.", ephemeral: true);
             return;
         }
 
-        if (RoleSyncRoles.TryAddRole(role.Id, remoteRole))
-            await RespondAsync($":white_check_mark: Role `{remoteRole}` úspěšně vytvořena!", ephemeral: true);
+        if (RoleSyncRoles.TryRemoveRole(role.Id, remoteRole))
+            await RespondAsync($":white_check_mark: Role `{remoteRole}` úspěšně odebrána!", ephemeral: true);
         else
-            await RespondAsync(":x: Nastala chyba při vytváření role.", ephemeral: true);
+            await RespondAsync(":x: Nastala chyba při odebírání role.", ephemeral: true);
     }
-    
+    #endregion
+
+    #region Account Linking
     /// <summary>
     /// Handles the process of linking a Discord account to a Steam account.
     /// This method checks if the user has already linked a Steam account and responds accordingly.
@@ -416,4 +427,169 @@ public class MainCommands : InteractionModuleBase<SocketInteractionContext>
             }
         }
     }
+    #endregion
+
+    #region Levels
+    /// <summary>
+    /// Resets the experience points (XP) of a specified player.
+    /// This command requires the "ModifyLevels" permission.
+    /// </summary>
+    /// <param name="user">The player whose experience points are to be reset.</param>
+    /// <returns>A task that represents the asynchronous operation of resetting the experience points.</returns>
+    [SlashCommand("resetxp", "Resetuje XP hráče.")]
+    public async Task ResetExperienceAsync(
+        [Summary("Hráč", "Hráč, jehož XP chcete resetovat.")] SocketUser user)
+    {
+        if (!Context.HasPermission("ModifyLevels"))
+        {
+            await RespondAsync(":x: | Nemáš oprávnění k úpravě levelů.", ephemeral: true);
+            return;
+        }
+
+        if (!ProfileManager.TryGetProfileByDiscordId(user.Id, out var profile))
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nebyl nalezen.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        if (!profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelData))
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nemá načtená data o levelu.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        var currentExp = levelData.Experience;
+        var currentLevel = LevelManager.GetLevelForXp(currentExp);
+
+        var result = LevelManager.ModifyProfileXp(profile, "Reset XP", -currentExp);
+
+        var newExp = levelData.Experience;
+        var newLevel = LevelManager.GetLevelForXp(newExp);
+
+        if (result is Levels.Enums.LevelModifyResult.ProfileNotFound)
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nebyl nalezen.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        await RespondAsync($":white_check_mark: | XP uživatele {user.Mention} byly úspěšně resetovány na {newExp} (level {currentLevel.Level} → {newLevel.Level})!", ephemeral: true, allowedMentions: AllowedMentions.None);
+    }
+
+    /// <summary>
+    /// Sets the experience points for a specified player.
+    /// </summary>
+    /// <param name="user">The player whose experience points are to be set.</param>
+    /// <param name="experience">The number of experience points to set for the player.</param>
+    /// <returns>A task that represents the asynchronous operation of setting the experience points.</returns>
+    [SlashCommand("modxp", "Upraví XP hráče.")]
+    public async Task SetExperienceAsync(
+        [Summary("Hráč", "Hráč, jehož XP chcete změnit.")] SocketUser user,
+        [Summary("Důvod", "Důvod, proč se XP hráče mění.")] string reason,
+        [Summary("XP", "Počet XP, které chcete přidat nebo odebrat.")] int experience)
+    {
+        if (!Context.HasPermission(Permissions.EditLevels))
+        {
+            await RespondAsync(":x: | Nemáš oprávnění k úpravě levelů.", ephemeral: true);
+            return;
+        }
+
+        if (!ProfileManager.TryGetProfileByDiscordId(user.Id, out var profile))
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nebyl nalezen.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        if (!profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelData))
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nemá načtená data o levelu.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        var currentExp = levelData.Experience;
+        var currentLevel = LevelManager.GetLevelForXp(currentExp);
+
+        var result = LevelManager.ModifyProfileXp(profile, reason, experience);
+
+        var newExp = levelData.Experience;
+        var newLevel = LevelManager.GetLevelForXp(newExp);
+
+        if (result is Levels.Enums.LevelModifyResult.ProfileNotFound)
+        {
+            await RespondAsync($":x: | Profil uživatele {user.Mention} nebyl nalezen.", ephemeral: true, allowedMentions: AllowedMentions.None);
+            return;
+        }
+
+        if (newExp > currentExp)
+        {
+            await RespondAsync($":white_check_mark: | Zkušenosti uživatele {user.Mention} byly úspěšně nastaveny na {experience} - +{newExp - currentExp} (level {currentLevel.Level} → {newLevel.Level})!", ephemeral: true, allowedMentions: AllowedMentions.None);
+        }
+        else if (newExp < currentExp)
+        {
+            await RespondAsync($":white_check_mark: | Zkušenosti uživatele {user.Mention} byly úspěšně nastaveny na {experience} - -{currentExp - newExp} (level {currentLevel.Level} → {newLevel.Level})!", ephemeral: true, allowedMentions: AllowedMentions.None);
+        }
+        else
+        {
+            await RespondAsync($":white_check_mark: | Zkušenosti uživatele {user.Mention} zůstaly beze změny na {experience} (level {currentLevel.Level}).", ephemeral: true, allowedMentions: AllowedMentions.None);
+        }
+    }
+
+    /// <summary>
+    /// Displays the leaderboard of players based on their levels.
+    /// </summary>
+    /// <param name="size">The number of players to display in the leaderboard.</param>
+    /// <returns>A task that represents the asynchronous operation of displaying the leaderboard.</returns>
+    [SlashCommand("leaderboard", "Zobrazí leaderboard hráčů podle levelů.")]
+    public async Task LeaderboardAsync(
+        [Summary("Velikost", "Počet hráčů zobrazených v leaderboardu.")] [MaxValue(25)] int size)
+    {
+        var embed = new EmbedBuilder();
+
+        if (!await LevelLeaderboard.EditEmbedAsync(embed, size))
+        {
+            await RespondAsync(":x: | Nastala chyba při generování leaderboardu (možná nejsou žádní hráči s levely).", ephemeral: true);
+            return;
+        }
+
+        await RespondAsync(embed: embed.Build(), ephemeral: true);
+    }
+
+    /// <summary>
+    /// Sets the channel for the leaderboard message, allowing users to view the leaderboard in a specified text channel.
+    /// </summary>
+    /// <param name="channel">The text channel where the leaderboard message will be posted.</param>
+    /// <returns>A task that represents the asynchronous operation of setting the leaderboard channel.</returns>
+    [SlashCommand("leaderboardchannel", "Nastaví kanál pro leaderboard zprávu.")]
+    public async Task SetLeaderboardAsync(
+        [Summary("Kanál", "Kanál ve kterém bude aktualizována leaderboard zpráva.")] SocketTextChannel channel)
+    {
+        try
+        {
+            if (!Context.HasPermission(Permissions.ManageLeaderboard))
+            {
+                await RespondAsync(":x: | Nemáš práva na správu leaderboardu.", ephemeral: true);
+                return;
+            }
+
+            var msg = await LevelLeaderboard.PostLeaderboardAsync(channel, true);
+
+            if (msg != null)
+                await RespondAsync($":white_check_mark: | Leaderboard zpráva byla úspěšně vytvořena v kanálu {channel.Mention}: {msg.GetJumpUrl()}.", ephemeral: true);
+            else
+                await RespondAsync(":x: | Nastala chyba při vytváření leaderboard zprávy (možná nejsou žádní hráči s levely).", ephemeral: true);
+        }
+        catch (Exception ex)
+        {
+            ConsoleOutput.Write($"Error while setting leaderboard channel (User={Context.User.GlobalName}@{Context.User.Id}, Guild={Context.Guild.Name}@{Context.Guild.Id}, Channel={Context.Channel.Name}@{Context.Channel.Id}):\n{ex}");
+
+            if (Context.Interaction.HasResponded)
+            {
+                await ModifyOriginalResponseAsync(msg => msg.Content = ":x: | Nastala chyba při nastavování kanálu pro leaderboard zprávu.");
+            }
+            else
+            {
+                await RespondAsync(":x: | Nastala chyba při nastavování kanálu pro leaderboard zprávu.", ephemeral: true);
+            }
+        }
+    }
+    #endregion
 }

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Concurrent;
 
-namespace PRTS.Discord;
+namespace PRTS.Discord.Utilities;
 
 /// <summary>
 /// Represents a rate limiter for Discord messages, allowing a maximum number of messages per user within a specified time interval.

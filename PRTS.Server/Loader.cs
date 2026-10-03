@@ -41,6 +41,21 @@ public static class Loader
     public static volatile ConfigHandler Config;
 
     /// <summary>
+    /// Saves the current configuration settings to the configuration file.
+    /// </summary>
+    public static void SaveConfig()
+    {
+        try
+        {
+            Config?.Save();
+        }
+        catch (Exception ex)
+        {
+            log.Error(ex);
+        }
+    }
+
+    /// <summary>
     /// Asynchronously initializes and starts the loader by configuring application settings,
     /// loading configurations, and starting the network manager.
     /// </summary>

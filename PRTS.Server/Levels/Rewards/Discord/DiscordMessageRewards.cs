@@ -2,7 +2,6 @@
 using Discord.WebSocket;
 
 using PRTS.Main;
-using PRTS.Discord;
 
 using NiveraAPI.Logs;
 using NiveraAPI.Utilities;
@@ -14,6 +13,7 @@ using PRTS.Profiles;
 using PRTS.Profiles.Objects;
 
 using PRTS.Core.Attributes;
+using PRTS.Discord.Utilities;
 
 namespace PRTS.Levels.Rewards.Discord;
 

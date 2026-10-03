@@ -375,6 +375,9 @@ public static class SitrepPlayerEvents
         if (args.DamageHandler == null)
             return;
 
+        if (args.DamageHandler is MicroHidDamageHandler)
+            return;
+
         var damageAmount = (args.DamageHandler as StandardDamageHandler)!.TotalDamageDealt;
         var damageType = TranslateDamage(args.DamageHandler);
         var damageName = DamageTranslations.TryGetValue(damageType, out var translation) 
@@ -433,7 +436,7 @@ public static class SitrepPlayerEvents
             : damageType.ToString();
 
         var targetRole = previousRoles.GetValueOrDefault(player, args.OldRole);
-        var attackerRole = previousRoles.GetValueOrDefault(attacker, attacker.Role.Type);
+        var attackerRole = !attacker.Role.IsAlive ? previousRoles.GetValueOrDefault(attacker, attacker.Role.Type) : attacker.Role.Type;
 
         if (player.UserId == attacker.UserId)
         {

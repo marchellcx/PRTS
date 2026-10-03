@@ -1,29 +1,29 @@
+using NiveraAPI.IO.Configs;
 using NiveraAPI.IO.Serialization;
 
 using NiveraAPI.IO.Network.Entities;
 using NiveraAPI.IO.Network.Entities.Attributes;
 
 using NiveraAPI.Logs;
+using NiveraAPI.Extensions;
+
+using PRTS.Profiles;
+using PRTS.Extensions;
+
+using PRTS.Levels;
+using PRTS.Levels.Properties;
 
 using PRTS.ScpSl.Discord;
+using PRTS.ScpSl.Objects;
 using PRTS.ScpSl.Interfaces;
-
-using System.Diagnostics;
-using System.Collections.Concurrent;
 
 using PRTS.ScpSl.Modules.Levels;
 using PRTS.ScpSl.Modules.Reports;
-using PRTS.ScpSl.Modules.Plugins;
 using PRTS.ScpSl.Modules.Profiles;
 using PRTS.ScpSl.Modules.Punishments;
 
-using PRTS.ScpSl.Objects;
-
-using PRTS.Levels;
-using PRTS.Profiles;
-using PRTS.Extensions;
-using NiveraAPI.IO.Configs;
-using PRTS.Levels.Properties;
+using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace PRTS.ScpSl;
 
@@ -40,14 +40,14 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     public static Dictionary<string, ulong> ChannelAliases { get; set; } = new();
 
     /// <summary>
-    /// Event triggered when the server has been successfully identified, providing the identified <see cref="ScpSlServer"/> instance.
-    /// </summary>
-    public static event Action<ScpSlServer>? Identified;
-
-    /// <summary>
     /// Event triggered when the server has been destroyed, providing the destroyed <see cref="ScpSlServer"/> instance.
     /// </summary>
     public static event Action<ScpSlServer>? Destroyed;
+
+    /// <summary>
+    /// Event triggered when the server has been successfully identified, providing the identified <see cref="ScpSlServer"/> instance.
+    /// </summary>
+    public static event Action<ScpSlServer>? Identified;
 
     private static volatile ConcurrentDictionary<string, ScpSlLatency> latencyProviders = new();
 
@@ -73,7 +73,6 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     private volatile ReportModule reportModule;
     private volatile ProfileModule profileModule;
     private volatile PunishmentModule punishmentModule;
-    private volatile PluginManagerModule pluginManagerModule;
 
     private volatile bool isRoundLocked;
     private volatile bool isLobbyLocked;
@@ -244,23 +243,6 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     }
 
     /// <summary>
-    /// Gets the plugin manager module associated with the server instance.
-    /// </summary>
-    public PluginManagerModule? PluginManagerModule
-    {
-        get
-        {
-            if (pluginManagerModule != null)
-                return pluginManagerModule;
-
-            if (Manager.TryGetFirstEntity(out pluginManagerModule))
-                return pluginManagerModule;
-
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Gets the latency provider for the server instance. If a latency monitor is available, it returns that; otherwise, it returns the server instance itself as the latency provider.
     /// </summary>
     public IScpSlLatencyProvider LatencyProvider
@@ -381,7 +363,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
                 }
             }
 
-            if (Latency > ScpSlLatency.LatencyThreshold)
+            if (Latency >= ScpSlLatency.LatencyThreshold)
             {
                 if (!latencyThresholdWatch.IsRunning)
                 {
@@ -485,7 +467,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
             writer =>
             {
                 writer.WriteString(reason);
-                writer.WriteArray(userIds.ToArray());
+                writer.WriteEnumerable(userIds);
             });
     }
 
@@ -551,8 +533,16 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     {
         var userId = reader.ReadString();
 
-        if (Players.TryRemove(userId, out _))
+        if (Players.TryRemove(userId, out var player))
+        {
+            player.UtcLeave = DateTime.UtcNow;
+
             DiscordBot?.UpdatePlayerCount(Players.Count, maxPlayers);
+        }
+        else
+        {
+            Log.Warn($"Attempted to remove player &1{userId}&r, but they were not found in the player list!");
+        }
     }
 
     /// <summary>
@@ -567,48 +557,13 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
 
         if (Players.TryGetValue(id, out var info))
         {
-            info.UserId = id;
-            info.Nick = reader.ReadString();
-            info.Address = reader.ReadString();
-            info.Country = reader.ReadString();
-
-            info.Ping = reader.ReadInt32();
-            info.Role = reader.ReadString();
-
-            info.UtcUpdate = DateTime.UtcNow;
-
-            info.CustomData.Clear();
-
-            reader.ReadIntoConcurrentDictionary(info.CustomData);
+            UpdatePlayer(reader, id, DateTime.UtcNow, info);
         }
         else
         {
-            info = new()
-            {
-                UserId = id,
+            info = new() { UtcJoin = DateTime.UtcNow };
 
-                Nick = reader.ReadString(),
-                Address = reader.ReadString(),
-                Country = reader.ReadString(),
-
-                Ping = reader.ReadInt32(),
-                Role = reader.ReadString(),
-
-                UtcUpdate = DateTime.UtcNow
-            };
-
-            info.CustomData.Clear();
-
-            reader.ReadIntoConcurrentDictionary(info.CustomData);
-
-            if (info.Profile == null
-                && ProfileManager.TryGetProfileByUserId(id, out var profile))
-            {
-                info.Profile = profile;
-
-                if (profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelProperty))
-                    info.Level = levelProperty;
-            }
+            UpdatePlayer(reader, id, DateTime.UtcNow, info);
 
             Players.TryAdd(id, info);
 
@@ -625,57 +580,51 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
     public void CmdSyncPlayers(ByteReader reader)
     {
         var count = reader.ReadByte();
-        var time = DateTime.UtcNow;
 
-        var anyNew = false;
-        var anyRemoved = false;
-
-        for (var x = 0; x < count; x++)
+        if (count == 0)
         {
-            var userId = reader.ReadString();
-
-            if (!Players.TryGetValue(userId, out var playerInfo))
+            if (Players.Count > 0)
             {
-                Players.TryAdd(userId, playerInfo = new());
+                Players.ForEach(kvp => kvp.Value.UtcLeave = DateTime.UtcNow);
+                Players.Clear();
 
-                anyNew = true;
+                DiscordBot?.UpdatePlayerCount(0, maxPlayers);
             }
-
-            playerInfo.UserId = userId;
-            playerInfo.UtcUpdate = time;
-
-            playerInfo.Nick = reader.ReadString();
-            playerInfo.Address = reader.ReadString();
-            playerInfo.Country = reader.ReadString();
-            playerInfo.Ping = reader.ReadInt32();
-            playerInfo.Role = reader.ReadString();
-
-            playerInfo.CustomData.Clear();
-
-            reader.ReadIntoConcurrentDictionary(playerInfo.CustomData);
-
-            if (playerInfo.Profile == null
-                && ProfileManager.TryGetProfileByUserId(userId, out var profile))
+            else
             {
-                playerInfo.Profile = profile;
-
-                if (profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelProperty))
-                    playerInfo.Level = levelProperty;
+                return;
             }
         }
-
-        foreach (var kvp in Players)
+        else
         {
-            if (kvp.Value.UtcUpdate != time)
+            var time = DateTime.UtcNow;
+            var dictCount = Players.Count;
+
+            for (var x = 0; x < count; x++)
             {
-                Players.TryRemove(kvp.Key, out _);
+                var userId = reader.ReadString();
 
-                anyRemoved = true;
+                if (!Players.TryGetValue(userId, out var playerInfo))
+                {
+                    Players.TryAdd(userId, playerInfo = new());
+                    playerInfo.UtcJoin = DateTime.UtcNow;
+                }
+
+                UpdatePlayer(reader, userId, time, playerInfo);
             }
-        }
 
-        if (anyNew || anyRemoved)
-            DiscordBot?.UpdatePlayerCount(Players.Count, maxPlayers);
+            foreach (var kvp in Players)
+            {
+                if (kvp.Value.UtcUpdate != time)
+                {
+                    kvp.Value.UtcLeave = DateTime.UtcNow;
+                    Players.TryRemove(kvp);
+                }
+            }
+
+            if (Players.Count != dictCount)
+                DiscordBot?.UpdatePlayerCount(Players.Count, maxPlayers);
+        }
     }
 
     /// <summary>
@@ -759,6 +708,7 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
                 DiscordBot.Server = this;
                 
                 bot.OnServerConnected();
+                bot.UpdatePlayerCount(0, MaxPlayers);
 
                 Log.Info("CmdReceiveIdentity", $"Bot &1{bot.BotAlias}&r connected to server &1{ServerAlias}&r!");
             }
@@ -779,5 +729,43 @@ public class ScpSlServer : Entity, IScpSlLatencyProvider
         }
 
         Identified?.Invoke(this);
+    }
+
+    private static void UpdatePlayer(ByteReader reader, string userId, DateTime time, PlayerInfo playerInfo)
+    {
+        var hash = reader.ReadUInt16();
+
+        playerInfo.UserId = userId;
+        playerInfo.UtcUpdate = time;
+
+        if ((hash & 2) != 0)
+            playerInfo.Nick = reader.ReadString();
+
+        if ((hash & 4) != 0)
+            playerInfo.Address = reader.ReadString();
+
+        if ((hash & 8) != 0)
+            playerInfo.Country = reader.ReadString();
+
+        if ((hash & 16) != 0)
+            playerInfo.Ping = reader.ReadInt32();
+
+        if ((hash & 32) != 0)
+            playerInfo.Role = reader.ReadString();
+
+        if ((hash & 64) != 0)
+        {
+            playerInfo.CustomData.Clear();
+
+            reader.ReadIntoConcurrentDictionary(playerInfo.CustomData);
+        }
+
+        if (playerInfo.Profile == null && ProfileManager.TryGetProfileByUserId(userId, out var profile))
+        {
+            playerInfo.Profile = profile;
+
+            if (profile.Value.TryGetProperty<LevelDataProperty>(LevelManager.DataPropertyName, out var levelProperty))
+                playerInfo.Level = levelProperty;
+        }
     }
 }

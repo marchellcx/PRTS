@@ -20,7 +20,6 @@ using PRTS.Punishments;
 using PRTS.Punishments.Enums;
 
 using PRTS.ScpSl.Discord;
-using PRTS.ScpSl.Modules.Plugins;
 
 using PRTS.Profiles.Objects;
 using PRTS.Core.Attributes;
@@ -213,17 +212,6 @@ public class ScpSlMonitor
                     $"**Nejvyšší**: {provider.HighestLatency}ms\n" +
                     $"**Nejnižší**: {provider.LowestLatency}ms\n" +
                     $"**Průměrný**: {provider.AverageLatency}ms");
-            }
-
-            if (Server.PluginManagerModule != null)
-            {
-                var plugins = Server.PluginManagerModule.Plugins.OrderBy(x => x.Name.Length);
-                var pluginsBuilder = Pools.PoolStringBuilder();
-
-                foreach (var plugin in plugins)
-                    pluginsBuilder.AppendLine($"- **[{plugin.Name}]** v{plugin.Version}");
-
-                builder.AddField(":gear: | Seznam pluginů", pluginsBuilder.ReturnStringBuilderValue());
             }
 
             if (Server.Players.Count > 0)
@@ -1508,8 +1496,6 @@ public class ScpSlMonitor
                             BuildEmbed(embed);
                             BuildComponents(components);
 
-                            
-
                             var message = await channel.SendMessageAsync(
                                 embed: embed.Build(),
                                 components: components.Build());
@@ -1603,19 +1589,6 @@ public class ScpSlMonitor
         }
     }
 
-    private static void OnPluginsReceived(PluginManagerModule pluginManagerModule)
-    {
-        if (Monitors.TryGetValue(pluginManagerModule.Server.ServerAlias, out var monitor))
-        {
-            var sb = Pools.PoolStringBuilder();
-
-            foreach (var plugin in pluginManagerModule.Plugins)
-                sb.AppendLine($"- [{plugin.Version}] **{plugin.Name}** *({plugin.Description})*");
-
-            monitor.PluginsString = sb.ReturnStringBuilderValue();
-        }
-    }
-
     internal static void OnButton(SocketMessageComponent component)
     {
         try
@@ -1704,8 +1677,6 @@ public class ScpSlMonitor
     {
         ScpSlServer.Destroyed += OnDestroyed;
         ScpSlServer.Identified += OnIdentified;
-
-        PluginManagerModule.PluginsReceived += OnPluginsReceived;
 
         foreach (var config in Configs)
         {

@@ -33,6 +33,12 @@ namespace PRTS.Levels;
 public static class LevelManager
 {
     /// <summary>
+    /// Gets or sets the number of log entries to display in the profile embed.
+    /// </summary>
+    [Config("level-manager", "log-display-count", "The number of log entries to display in the profile embed.")]
+    public static int LogDisplayCount { get; set; } = 10;
+
+    /// <summary>
     /// Gets or sets the highest level a player can achieve in the game. This property is configurable and can be adjusted to set the maximum level limit for players.
     /// </summary>
     [Config("level-manager", "level-cap", "The maximum level a player can achieve.")]
@@ -366,6 +372,7 @@ public static class LevelManager
             else if (user.Roles.TryGetFirst(r => r.Id == kvp.Value, out var role))
             {
                 log.Info($"Removing role &1{role.Name}&r from user &1{profile.UserId}&r for dropping below level &1{level}&r.");
+                
                 Task.Run(async () => await user.RemoveRoleAsync(role));
             }
         }
@@ -373,7 +380,21 @@ public static class LevelManager
         if (roleToAdd != null && !user.Roles.Any(r => r.Id == roleToAdd.Id))
         {
             log.Info($"Assigning role &1{roleToAdd.Name}&r to user &1{profile.DiscordId}&r for reaching level &1{level}&r.");
+
             Task.Run(async () => await user.AddRoleAsync(roleToAdd));
+        }
+
+        foreach (var role in user.Roles)
+        {
+            if (!Roles.ContainsValue(role.Id))
+                continue;
+
+            if (roleToAdd != null && role.Id == roleToAdd.Id)
+                continue;
+
+            log.Info($"Removing role &1{role.Name}&r from user &1{profile.DiscordId}&r as it is no longer applicable.");
+
+            Task.Run(async () => await user.RemoveRoleAsync(role));
         }
     }
 
@@ -411,14 +432,23 @@ public static class LevelManager
                 var logBuilder = new StringBuilder();
                 var fieldBuilder = new StringBuilder();
 
-                foreach (var log in logsProperty.Logs.OrderByDescending(l => l.UtcTime))
+                var groupedLogs = logsProperty.Logs
+                    .GroupBy(l => l.Reason)
+                    .OrderByDescending(g => g.Key);
+
+                foreach (var logGroup in groupedLogs.Take(LogDisplayCount))
                 {
                     logBuilder.Clear();
 
-                    var change = log.Change > 0 ? $"+{log.Change}" : $"-{log.Change}";
+                    var log = logGroup.First();
+                    var xpTotal = logGroup.Sum(l => l.Change);
+                    var change = xpTotal > 0 ? $"+{xpTotal}" : $"{xpTotal}";
                     var reason = string.IsNullOrEmpty(log.Reason) ? "No reason provided" : log.Reason;
 
-                    logBuilder.AppendLine($"- {change} XP - {reason}");
+                    if (logGroup.Count() > 1)
+                        logBuilder.AppendLine($"- {change} XP - {reason} ({logGroup.Count()}x)");
+                    else
+                        logBuilder.AppendLine($"- {change} XP - {reason}");
 
                     if (fieldBuilder.Length + logBuilder.Length <= 4096)
                     {
@@ -431,12 +461,12 @@ public static class LevelManager
                 }
 
                 if (fieldBuilder.Length > 0)
-                    builder.WithDescription($":scroll: Historie\n{fieldBuilder.ToString()}");
+                    builder.WithDescription($":scroll: Historie\n{fieldBuilder}");
 
                 logBuilder.Clear();
                 fieldBuilder.Clear();
             }
-            
+
             pages.Add(builder);
         }
     }
@@ -510,6 +540,7 @@ public static class LevelManager
         }
 
         ProfileManager.ProfileEmbedBuilder += AppendLevel;
+        
         MainBotInstance.Ready += OnReady;
 
         log.Info($"Initialized level system with &1{LevelCap}&r levels.");

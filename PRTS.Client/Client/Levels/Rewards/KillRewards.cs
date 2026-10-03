@@ -105,6 +105,9 @@ public static class KillRewards
     /// <returns>True if the attack is considered a team kill; otherwise, false.</returns>
     public static bool IsTeamKill(RoleTypeId attacker, RoleTypeId target)
     {
+        if (!ExRound.IsRunning)
+            return false;
+
         if (!attacker.IsAlive() || !target.IsAlive())
             return false;
 

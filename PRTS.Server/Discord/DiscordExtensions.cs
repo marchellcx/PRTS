@@ -13,10 +13,68 @@ using PRTS.ScpSl.Discord;
 
 using PRTS.Staff;
 
+using System.Reflection;
+using System.Collections.ObjectModel;
+
 namespace PRTS.Discord;
 
+/// <summary>
+/// Provides extension methods for Discord-related classes, including interaction contexts, modals, and message components, to facilitate handling permissions, server entities, and user interactions in a Discord bot environment.
+/// </summary>
 public static class DiscordExtensions
 {
+    static DiscordExtensions()
+    {
+        var values = Enum.GetValues(typeof(ChannelPermission)).CastArray<ChannelPermission>();
+        var type = typeof(OverwritePermissions);
+        var dict = new Dictionary<ChannelPermission, PropertyInfo>();
+
+        for (var x = 0; x < values.Length; x++)
+        {
+            var value = values[x];
+            var property = typeof(ChannelPermissions).FindProperty(value.ToString());
+
+            if (property == null)
+            {
+                log.Error($"Property for permission &1{value}&r not found in type &1{type.FullName}&r!");
+                continue;
+            }
+
+            dict[value] = property;
+        }
+
+        OverwritePermissionToProperty = new(dict);
+    }
+
+    private static volatile LogSink log = LogManager.GetSource("Discord", "Extensions");
+
+    /// <summary>
+    /// A mapping of <see cref="ChannelPermission"/> values to their corresponding <see cref="PropertyInfo"/> in the <see cref="OverwritePermissions"/> class.
+    /// </summary>
+    public static volatile ReadOnlyDictionary<ChannelPermission, PropertyInfo> OverwritePermissionToProperty;
+
+    /// <summary>
+    /// Checks if the specified <see cref="OverwritePermissions"/> instance has the given <see cref="ChannelPermission"/> and returns its corresponding <see cref="PermValue"/>.
+    /// </summary>
+    /// <param name="permissions">The <see cref="OverwritePermissions"/> instance to check.</param>
+    /// <param name="permission">The <see cref="ChannelPermission"/> to check for.</param>
+    /// <returns>The corresponding <see cref="PermValue"/> if the permission is present; otherwise, <c>null</c>.</returns>
+    public static PermValue? HasPermission(this OverwritePermissions permissions, ChannelPermission permission)
+    {
+        if (!OverwritePermissionToProperty.TryGetValue(permission, out var property))
+        {
+            log.Error($"Property for permission &1{permission}&r not found in mapping!");
+            return null;
+        }
+
+        var value = property.GetValue(permissions);
+
+        if (value is not PermValue permValue)
+            return null;
+
+        return permValue;
+    }
+
     /// <summary>
     /// Sends a request to a server-side entity and waits for a response within an optional timeout period.
     /// </summary>
